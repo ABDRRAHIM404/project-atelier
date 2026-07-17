@@ -1,0 +1,5 @@
+-- Intentionally empty.
+--
+-- P1 integration fixtures are synthetic, test-owned, and loaded into isolated
+-- databases by the test harness. Supabase reset must never import production or
+-- developer data implicitly.

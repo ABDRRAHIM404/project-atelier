@@ -1,0 +1,9 @@
+node_modules
+.next
+coverage
+.lighthouseci
+playwright-report
+test-results
+quality/evidence/runs
+next-env.d.ts
+*.md

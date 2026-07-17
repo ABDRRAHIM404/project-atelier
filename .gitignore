@@ -1,0 +1,24 @@
+# Dependencies and framework output
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Test and quality artifacts
+coverage/
+.lighthouseci/
+playwright-report/
+test-results/
+quality/evidence/runs/
+
+# Local environment and tool state
+.env
+.env.*
+!.env.example
+.playwright-mcp/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

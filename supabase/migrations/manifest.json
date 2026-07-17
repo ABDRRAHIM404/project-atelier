@@ -1,0 +1,89 @@
+{
+  "manifestVersion": 1,
+  "migrations": [
+    {
+      "backwardCompatibility": "P1 additive foundation; no prior application data exists",
+      "checksumSha256": "c907587f1f4a230077c5cf0fa85bc504664665c965c9c205493ab1b23fcc39b7",
+      "dataEffect": "Seeds only CFG-001 through CFG-008 definitions; no policy values",
+      "dependencies": [],
+      "expectedLock": "New-object catalog locks only",
+      "file": "20260716000100_p1_trusted_foundation.sql",
+      "id": "20260716000100",
+      "owners": [
+        "data-platform",
+        "access-and-identity",
+        "business-configuration",
+        "audit-and-operations"
+      ],
+      "recovery": "Rollback the uncommitted transaction; use a reviewed forward-fix after commit",
+      "riskClass": "D",
+      "transactionSafe": true,
+      "verification": "npm run test:postgres"
+    },
+    {
+      "backwardCompatibility": "P2 additive schemas and policies; P1 application contracts remain compatible",
+      "checksumSha256": "6d4df3589a66e49db5dfbf33a8c6007e963b0a715624c6ef868900af11376341",
+      "dataEffect": "No business content, policy values, provider objects, or external-upload enablement",
+      "dependencies": [
+        "20260716000100"
+      ],
+      "expectedLock": "Extension catalog and new-object catalog locks only",
+      "file": "20260716000200_p2_discovery_content_files.sql",
+      "id": "20260716000200",
+      "owners": [
+        "catalog-and-search",
+        "cms-and-localization",
+        "files-and-media"
+      ],
+      "recovery": "Rollback the uncommitted transaction; use a reviewed forward-fix after commit",
+      "riskClass": "D",
+      "transactionSafe": true,
+      "verification": "npm run test:postgres"
+    },
+    {
+      "backwardCompatibility": "Lean V1 additive core workflow; P1/P2 contracts remain compatible",
+      "checksumSha256": "1b3ff1b69ff52ae8a943b1b85055e54f8ea3ff7b5f280f0cc709d65a3999e2a5",
+      "dataEffect": "No customer, commercial, payment, production, fulfilment, or notification rows are seeded",
+      "dependencies": [
+        "20260716000200"
+      ],
+      "expectedLock": "New-object catalog locks only",
+      "file": "20260716000300_lean_core_workflow.sql",
+      "id": "20260716000300",
+      "owners": [
+        "customer-projects",
+        "messaging",
+        "quotations-and-acceptance",
+        "orders",
+        "payments",
+        "production",
+        "fulfilment",
+        "notifications"
+      ],
+      "recovery": "Rollback the uncommitted transaction; use a reviewed forward-fix after commit",
+      "riskClass": "D",
+      "transactionSafe": true,
+      "verification": "npm run test:postgres"
+    },
+    {
+      "backwardCompatibility": "Additive customer fulfilment confirmation; existing order data remains readable",
+      "checksumSha256": "3f1e61e36618ec0c64d53346353194ab8ab44cba29481b388bb2992575ed4fee",
+      "dataEffect": "Adds nullable fulfilment confirmation timestamp and validates confirmed snapshots",
+      "dependencies": [
+        "20260716000300"
+      ],
+      "expectedLock": "Brief table metadata lock on fulfilment.fulfilments",
+      "file": "20260716000400_customer_fulfilment_details.sql",
+      "id": "20260716000400",
+      "owners": [
+        "fulfilment",
+        "payments",
+        "orders"
+      ],
+      "recovery": "Rollback the uncommitted transaction; use a reviewed forward-fix after commit",
+      "riskClass": "C",
+      "transactionSafe": true,
+      "verification": "npm run test:postgres"
+    }
+  ]
+}

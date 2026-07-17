@@ -1,0 +1,51 @@
+name: Pull request quality gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  cancel-in-progress: true
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: P1 G1 quality gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      APP_ENV: test
+      CI: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: 24
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Install Playwright browsers and host dependencies
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Run traceable P1 G1 quality gate
+        env:
+          QUALITY_OWNER: ${{ github.actor }}
+          QUALITY_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: npm run quality:p1
+      - if: always()
+        name: Retain privacy-safe quality evidence
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: ignore
+          name: quality-evidence-${{ github.run_id }}
+          path: |
+            coverage/
+            playwright-report/
+            quality/evidence/runs/
+            test-results/

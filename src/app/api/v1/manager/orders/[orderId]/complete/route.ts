@@ -1,0 +1,38 @@
+import { FulfilmentService } from '@/modules/fulfilment';
+import {
+  readJsonObject,
+  requirePrivateUploadsReady,
+  withWorkflowActor,
+  workflowProblem,
+} from '../../../../../../../platform/workflow';
+
+export const dynamic = 'force-dynamic';
+const fulfilment = new FulfilmentService();
+
+type Context = Readonly<{ params: Promise<Readonly<{ orderId: string }>> }>;
+
+export async function POST(request: Request, context: Context): Promise<Response> {
+  try {
+    requirePrivateUploadsReady();
+    const [{ orderId }, body] = await Promise.all([context.params, readJsonObject(request)]);
+    const result = await withWorkflowActor(request, (transaction) =>
+      fulfilment.complete(transaction, {
+        orderId,
+        proofChecksumSha256:
+          typeof body.proofChecksumSha256 === 'string' ? body.proofChecksumSha256 : undefined,
+        proofDisplayFilename:
+          typeof body.proofDisplayFilename === 'string' ? body.proofDisplayFilename : '',
+        proofMediaType:
+          body.proofMediaType === 'image/jpeg' ||
+          body.proofMediaType === 'image/png' ||
+          body.proofMediaType === 'application/pdf'
+            ? body.proofMediaType
+            : 'application/pdf',
+        proofObjectKey: typeof body.proofObjectKey === 'string' ? body.proofObjectKey : '',
+      }),
+    );
+    return Response.json(result, { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch (error) {
+    return workflowProblem(error, request);
+  }
+}

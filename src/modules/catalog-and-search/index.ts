@@ -1,0 +1,87 @@
+export {
+  CatalogCommandService,
+  type CatalogCommandContext,
+  type CatalogCommandFailure,
+  type CatalogCommandResult,
+  type CreateManagedResourceDraftCommand,
+  type CreateProductDraftCommand,
+  type PublishCatalogResourceCommand,
+  type ReplaceProductConfigurationCommand,
+  type TransitionProductCommand,
+  type UpdateProductDraftCommand,
+} from './application/catalog-command-service';
+export {
+  CatalogQueryService,
+  type CatalogDetailQuery,
+  type CatalogListQuery,
+  type CatalogSearchQuery,
+} from './application/catalog-query-service';
+export {
+  CatalogSearchProjectionService,
+  type SearchProjectionRefreshResult,
+} from './application/search-projection-service';
+export {
+  buildProductConfigurationDefinition,
+  validateProductConfiguration,
+  type CatalogConfigurationFailure,
+  type CatalogConfigurationInput,
+  type DimensionKind,
+  type DimensionRule,
+  type ProductConfigurationDefinition,
+  type ProductOptionDefinition,
+  type ProductOptionDependency,
+  type ProductOptionExclusion,
+  type ProductOptionValueDefinition,
+} from './domain/configuration';
+export {
+  catalogManagedResourceKinds,
+  catalogProductLifecycles,
+  createCatalogProductDraft,
+  createManagedResourceDraft,
+  isPublicCatalogLifecycle,
+  type CatalogCollection,
+  type CatalogColor,
+  type CatalogManagedResource,
+  type CatalogManagedResourceKind,
+  type CatalogManagedResourceLifecycle,
+  type CatalogMaterial,
+  type CatalogProduct,
+  type CatalogProductLifecycle,
+  type CatalogProductOption,
+  type CatalogProductOptionValue,
+  type CatalogResourceId,
+  type CatalogResourceSummary,
+  type CatalogTranslation,
+  type FurnitureTypeCode,
+  type PublicCatalogProduct,
+  type PublicCatalogProductCard,
+} from './domain/model';
+export {
+  catalogSearchQueryTokens,
+  normalizeArabicCatalogSearchText,
+  normalizeCatalogSearchText,
+  type CatalogSearchFailure,
+} from './domain/search-normalization';
+export type {
+  CatalogAuditPort,
+  CatalogInvalidationPort,
+  CatalogLocalizationReadPort,
+  CatalogPublicMediaReadPort,
+  CatalogPublicationReadiness,
+  CatalogTranslationCandidate,
+} from './ports/integration';
+export type {
+  CatalogManagerProductView,
+  CatalogPersistence,
+  CatalogProductConfigurationSnapshot,
+  CatalogPublicReadPersistence,
+  CatalogSearchCursor,
+  CatalogSearchDocument,
+  CatalogSearchHit,
+  CatalogSearchPersistence,
+  CatalogWritePersistence,
+  ManagedResourceDraftInput,
+  ProductDraftInput,
+  PublicCatalogPage,
+  PublicCatalogProductRecord,
+} from './ports/persistence';

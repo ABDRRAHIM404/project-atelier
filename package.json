@@ -1,0 +1,89 @@
+{
+  "name": "project-atelier",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Arabic-first Project Atelier modular monolith",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
+  },
+  "packageManager": "npm@11.16.0",
+  "scripts": {
+    "dev": "next dev",
+    "demo": "node scripts/run-local-demo.mjs",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "boundaries": "node scripts/check-boundaries.mjs",
+    "test:boundaries": "node --test scripts/check-boundaries.test.mjs",
+    "test:tooling": "node --test scripts/quality-tools.test.mjs",
+    "test": "node scripts/run-postgres-tests.mjs all",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:postgres": "node scripts/run-postgres-tests.mjs postgres",
+    "test:coverage": "node scripts/run-postgres-tests.mjs all --coverage",
+    "migrations:check": "node scripts/check-migrations.mjs",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\" \"tests/**/*.{ts,tsx,js}\" \"scripts/**/*.{mjs,ts}\" \"quality/**/*.json\" \".github/**/*.yml\" \"*.{json,js,mjs,ts}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\" \"tests/**/*.{ts,tsx,js}\" \"scripts/**/*.{mjs,ts}\" \"quality/**/*.json\" \".github/**/*.yml\" \"*.{json,js,mjs,ts}\"",
+    "verify:static": "npm run boundaries && npm run lint && npm run typecheck && npm run format:check",
+    "test:e2e": "playwright test",
+    "test:performance": "node scripts/run-lighthouse.mjs",
+    "scan:secrets": "node scripts/check-secrets.mjs",
+    "quality:p0": "node scripts/run-p0-quality-gate.mjs",
+    "quality:p1": "node scripts/run-p1-quality-gate.mjs",
+    "seed:demo": "node scripts/seed-local-demo.mjs",
+    "test:e2e:workflow": "node scripts/run-workflow-e2e.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1088.0",
+    "@aws-sdk/s3-request-presigner": "3.1088.0",
+    "@clerk/backend": "3.11.6",
+    "drizzle-orm": "0.45.2",
+    "next": "16.2.10",
+    "next-intl": "4.13.2",
+    "pg": "8.22.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@lhci/cli": "0.15.1",
+    "@playwright/test": "1.61.1",
+    "@types/node": "24.13.3",
+    "@types/pg": "8.20.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitest/coverage-v8": "4.1.10",
+    "drizzle-kit": "0.31.10",
+    "embedded-postgres": "17.6.0-beta.15",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.2.10",
+    "fast-check": "4.9.0",
+    "prettier": "3.9.5",
+    "supabase": "2.109.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    },
+    "inquirer": "9.3.8",
+    "postcss": "8.5.10",
+    "tmp": "0.2.7",
+    "uuid": "11.1.1"
+  },
+  "allowScripts": {
+    "@embedded-postgres/linux-x64@17.6.0-beta.15": true,
+    "embedded-postgres@17.6.0-beta.15": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true,
+    "supabase@2.109.1": true,
+    "@parcel/watcher@2.5.6": true,
+    "@swc/core@1.15.43": true,
+    "sharp@0.34.5": true,
+    "unrs-resolver@1.12.2": true
+  }
+}

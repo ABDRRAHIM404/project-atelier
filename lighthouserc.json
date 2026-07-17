@@ -1,0 +1,30 @@
+{
+  "ci": {
+    "assert": {
+      "assertions": {
+        "categories:performance": ["error", { "minScore": 0.9 }],
+        "cumulative-layout-shift": ["error", { "maxNumericValue": 0.1 }],
+        "largest-contentful-paint": ["error", { "maxNumericValue": 2500 }],
+        "resource-summary:script:size": ["error", { "maxNumericValue": 204800 }],
+        "resource-summary:stylesheet:size": ["error", { "maxNumericValue": 76800 }],
+        "resource-summary:total:size": ["error", { "maxNumericValue": 1572864 }]
+      }
+    },
+    "collect": {
+      "numberOfRuns": 3,
+      "settings": {
+        "onlyCategories": ["performance"],
+        "throttlingMethod": "simulate"
+      },
+      "startServerCommand": "npm run start",
+      "startServerReadyPattern": "Ready",
+      "startServerReadyTimeout": 120000,
+      "url": ["http://127.0.0.1:3000/"]
+    },
+    "upload": {
+      "outputDir": "quality/evidence/runs/lighthouse",
+      "reportFilenamePattern": "foundation-%%DATETIME%%.report.%%EXTENSION%%",
+      "target": "filesystem"
+    }
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "Accessibility": {
+    "skipToContent": "Skip to main content"
+  },
+  "Error": {
+    "description": "This page could not be displayed. You can try again.",
+    "retry": "Try again",
+    "title": "An unexpected error occurred"
+  },
+  "Foundation": {
+    "status": "The platform foundation is being prepared.",
+    "title": "بيتي بذوقي"
+  },
+  "Loading": {
+    "label": "Loading page"
+  },
+  "Metadata": {
+    "description": "Custom-made furniture from بيتي بذوقي",
+    "title": "بيتي بذوقي"
+  },
+  "NotFound": {
+    "description": "The requested page could not be found.",
+    "title": "Page not found"
+  },
+  "Storefront": {
+    "navigation": {
+      "home": "Home",
+      "atelier": "Furniture made for you",
+      "label": "Primary navigation",
+      "catalog": "Designs",
+      "howItWorks": "How it works",
+      "explore": "Explore designs"
+    },
+    "footer": {
+      "description": "An Arabic-first platform for made-to-order furniture, from idea to handoff.",
+      "linksLabel": "Site links",
+      "catalog": "Designs",
+      "howItWorks": "How it works",
+      "note": "Every design is reviewed and quoted by the workshop before production starts."
+    },
+    "home": {
+      "eyebrow": "Digital furniture atelier",
+      "title": "Furniture for your home, made to your taste.",
+      "description": "Explore configurable designs, then work directly with the workshop to approve dimensions, materials, and details before pricing and production.",
+      "primaryAction": "Explore designs",
+      "secondaryAction": "How does it work?",
+      "highlightsLabel": "Service benefits",
+      "highlightOne": "Made to order",
+      "highlightTwo": "Human review for every project",
+      "highlightThree": "Clear tracking through handoff",
+      "visualNoteLabel": "Production method",
+      "visualNoteValue": "Tailored to your space",
+      "featuredEyebrow": "Selected designs",
+      "featuredTitle": "A starting point for your next project",
+      "viewAll": "View all designs",
+      "differenceEyebrow": "What makes it different?",
+      "differenceTitle": "Not a shopping cart; a considered design journey.",
+      "differenceOneTitle": "Inspired choice",
+      "differenceOneDescription": "Begin with a design direction, then adapt it to your home and needs.",
+      "differenceTwoTitle": "Practical review",
+      "differenceTwoDescription": "The workshop checks dimensions, materials, and feasibility before quoting.",
+      "differenceThreeTitle": "Clear decision",
+      "differenceThreeDescription": "Production starts only after quotation acceptance and manual payment verification.",
+      "journeyEyebrow": "Simple steps",
+      "journeyTitle": "From a design to a piece made for you.",
+      "journeyDescription": "See the stages that keep details, pricing, and production status clear.",
+      "journeyAction": "See how it works"
+    },
+    "catalog": {
+      "eyebrow": "Design showroom",
+      "title": "Start with a design, then make it fit your home.",
+      "description": "Every item is a configurable template within workshop capabilities, not stocked furniture for instant shipping.",
+      "resultsLabel": "Design results",
+      "searchLabel": "Search designs",
+      "searchPlaceholder": "For example: sofa, table, wardrobe...",
+      "searchAction": "Search",
+      "filterLabel": "Filter by furniture type",
+      "all": "All",
+      "count": "{count, plural, =0 {No designs} one {One design} other {# designs}}",
+      "querySummary": "Search results for “{query}”",
+      "emptyTitle": "No matching design found",
+      "emptyDescription": "Try a simpler term or view every available type.",
+      "clearFilters": "View all designs"
+    },
+    "product": {
+      "breadcrumbsLabel": "Breadcrumbs",
+      "home": "Home",
+      "catalog": "Designs",
+      "madeToOrder": "Made to order",
+      "managerReviewed": "Workshop reviewed",
+      "startAction": "Learn the request steps",
+      "backAction": "Back to designs",
+      "customizationEyebrow": "Configurable",
+      "customizationTitle": "Final details are shaped around your space.",
+      "customizationDescription": "Precise options depend on what the manager publishes for each design and are reviewed before the quotation is fixed.",
+      "dimensionsTitle": "Dimensions",
+      "dimensionsDescription": "Defined within the design rules and manufacturing capabilities.",
+      "materialsTitle": "Materials",
+      "materialsDescription": "Choose from materials approved for this design.",
+      "colorsTitle": "Colors",
+      "colorsDescription": "Only available colors are shown, with room to explain preferences.",
+      "quotationTitle": "Pricing",
+      "quotationDescription": "There is no direct checkout; the manager sends a quotation after review.",
+      "productionEyebrow": "Production note",
+      "productionTitle": "What to know before requesting"
+    },
+    "process": {
+      "eyebrow": "How it works",
+      "title": "A clear journey from idea to handoff.",
+      "description": "The process reduces misunderstandings while keeping final decisions with the customer and workshop.",
+      "stepOneTitle": "Explore and choose",
+      "stepOneDescription": "Browse published designs and select the pieces that fit your idea.",
+      "stepTwoTitle": "Create your project",
+      "stepTwoDescription": "After signing in, combine one or more items and add customizations and notes.",
+      "stepThreeTitle": "Review and quotation",
+      "stepThreeDescription": "The workshop reviews feasibility and details, then sends a clear quotation for approval.",
+      "stepFourTitle": "Verified payment, then production",
+      "stepFourDescription": "Upload bank-transfer proof; production starts only after manual payment verification.",
+      "stepFiveTitle": "Tracking and handoff",
+      "stepFiveDescription": "Follow the order until it is ready, then receive delivery or pickup as agreed.",
+      "ctaEyebrow": "Start calmly",
+      "ctaTitle": "Explore first; decide after review.",
+      "ctaDescription": "There is no commitment or direct payment while browsing.",
+      "ctaAction": "Explore designs"
+    }
+  }
+}
