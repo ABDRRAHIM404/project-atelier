@@ -39,6 +39,7 @@
     "@aws-sdk/client-s3": "3.1088.0",
     "@aws-sdk/s3-request-presigner": "3.1088.0",
     "@clerk/backend": "3.11.6",
+    "@clerk/nextjs": "7.5.20",
     "drizzle-orm": "0.45.2",
     "next": "16.2.10",
     "next-intl": "4.13.2",

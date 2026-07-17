@@ -1,3 +1,4 @@
+import { ClerkProvider } from '@clerk/nextjs';
 import type { Metadata } from 'next';
 import { getLocale, getMessages, getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
@@ -25,15 +26,18 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   const translate = await getTranslations('Accessibility');
 
   return (
-    <html data-scroll-behavior="smooth" dir={localeDirection(locale)} lang={locale}>
-      <body>
-        <a className="skip-link" href="#main-content">
-          {translate('skipToContent')}
-        </a>
-        <LocalizationProvider locale={locale} messages={messages}>
-          {children}
-        </LocalizationProvider>
-      </body>
-    </html>
+    <ClerkProvider>
+      <html data-scroll-behavior="smooth" dir={localeDirection(locale)} lang={locale}>
+        <body>
+          <a className="skip-link" href="#main-content">
+            {translate('skipToContent')}
+          </a>
+
+          <LocalizationProvider locale={locale} messages={messages}>
+            {children}
+          </LocalizationProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
