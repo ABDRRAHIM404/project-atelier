@@ -379,7 +379,7 @@ describe('Clerk webhook verification boundary', () => {
     const result = await verifier.verify(
       new Request('https://atelier.invalid/api/v1/webhooks/clerk', {
         body: '{"safe":"fixture"}',
-        headers: { 'webhook-id': 'evt_test', 'webhook-timestamp': '1784203200' },
+        headers: { 'svix-id': 'evt_test', 'svix-timestamp': '1784203200' },
         method: 'POST',
       }),
     );
@@ -408,7 +408,7 @@ describe('Clerk webhook verification boundary', () => {
       await verifier.verify(
         new Request('https://atelier.invalid/api/v1/webhooks/clerk', {
           body: '{}',
-          headers: { 'webhook-id': 'evt_forged' },
+          headers: { 'svix-id': 'evt_forged' },
           method: 'POST',
         }),
       ),

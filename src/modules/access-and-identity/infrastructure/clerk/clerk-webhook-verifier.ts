@@ -19,7 +19,7 @@ function providerInstant(event: WebhookEvent, request: Request) {
   const milliseconds = data.updated_at ?? data.created_at;
   if (typeof milliseconds === 'number') return utcInstantFromDate(new Date(milliseconds));
 
-  const timestamp = request.headers.get('webhook-timestamp');
+  const timestamp = request.headers.get('svix-timestamp');
   return timestamp && /^\d+$/u.test(timestamp)
     ? utcInstantFromDate(new Date(Number(timestamp) * 1000))
     : undefined;
@@ -49,7 +49,7 @@ export class ClerkWebhookVerifier implements ProviderWebhookVerifier {
   async verify(
     request: Request,
   ): Promise<Result<IdentitySynchronizationEvent | null, ProviderWebhookFailure>> {
-    const eventId = request.headers.get('webhook-id');
+    const eventId = request.headers.get('svix-id');
     if (!eventId || eventId.length > 255 || /[\u0000-\u001f\u007f]/u.test(eventId)) {
       return err({ code: 'MALFORMED_EVENT' });
     }
