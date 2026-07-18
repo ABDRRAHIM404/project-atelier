@@ -271,8 +271,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }
 
   async function uploadProductImage(event: FormEvent<HTMLFormElement>, product: CatalogProduct) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  event.preventDefault();
+
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
     const file = form.get('file');
     if (!(file instanceof File) || !file.size) throw new Error('اختر صورة أولاً.');
     const response = await fetch(`/api/v1/manager/catalog/products/${product.id}/images`, {
@@ -281,7 +283,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     });
     const payload = (await response.json().catch(() => ({}))) as { detail?: string };
     if (!response.ok) throw new Error(payload.detail ?? 'تعذر رفع الصورة.');
-    event.currentTarget.reset();
+    formElement.reset();
     await refreshProductImagesById(product);
   }
 
