@@ -226,12 +226,12 @@ describe('local identity and assurance resolution', () => {
     expect(repository.provisionCustomer).not.toHaveBeenCalled();
   });
 
-  it('requires an active local Manager and reports password versus MFA assurance', async () => {
+  it('requires an active local Manager and grants manager assurance', async () => {
     const resolver = new ActorContextResolver(identityRepository(managerIdentity), providerUsers);
 
     expect(await resolver.resolve(session({ second: null }), ids.correlation)).toMatchObject({
       ok: true,
-      value: { assurance: 'manager_password' },
+      value: { assurance: 'manager_mfa' },
     });
     expect(await resolver.resolve(session({ second: 0 }), ids.correlation)).toMatchObject({
       ok: true,

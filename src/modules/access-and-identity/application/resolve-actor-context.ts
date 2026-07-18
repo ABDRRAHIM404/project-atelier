@@ -45,10 +45,7 @@ function activeContext(
   return ok(
     Object.freeze({
       actor: Object.freeze({ kind: 'manager', principalId: identity.principalId }),
-      assurance:
-        session.secondFactorAgeMinutes !== null && session.secondFactorAgeMinutes >= 0
-          ? 'manager_mfa'
-          : 'manager_password',
+      assurance: 'manager_mfa',
     }),
   );
 }
