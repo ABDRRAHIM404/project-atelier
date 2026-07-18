@@ -97,6 +97,14 @@ type CatalogProduct = Readonly<{
   startingAmountMinor: number;
 }>;
 
+type ProductImage = Readonly<{
+  altText?: string;
+  id: string;
+  isPrimary: boolean;
+  publicUrl: string;
+  sortOrder: number;
+}>;
+
 type ManagerDashboardProps = Readonly<{ demoEnabled: boolean }>;
 
 const nextProductionState: Readonly<Record<string, string>> = Object.freeze({
@@ -140,6 +148,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [orders, setOrders] = useState<readonly Order[]>([]);
   const [notifications, setNotifications] = useState<readonly Notification[]>([]);
   const [catalogProducts, setCatalogProducts] = useState<readonly CatalogProduct[]>([]);
+  const [productImages, setProductImages] = useState<Record<string, readonly ProductImage[]>>({});
   const [requestDetail, setRequestDetail] = useState<RequestDetail>();
   const [orderDetail, setOrderDetail] = useState<OrderDetail>();
   const [messages, setMessages] = useState<readonly Message[]>([]);
@@ -167,6 +176,19 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
       setOrders(orderResult.orders);
       setNotifications(notificationResult.notifications);
       setCatalogProducts(catalogResult.products);
+      const imageEntries = await Promise.all(
+        catalogResult.products.map(async (product) => {
+          try {
+            const result = await apiRequest<{ images: readonly ProductImage[] }>(
+              `/api/v1/manager/catalog/products/${product.id}/images`,
+            );
+            return [product.id, result.images] as const;
+          } catch {
+            return [product.id, [] as readonly ProductImage[]] as const;
+          }
+        }),
+      );
+      setProductImages(Object.fromEntries(imageEntries));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر تحميل لوحة المدير.');
     }
@@ -235,6 +257,52 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         method: 'POST',
       });
     }, 'تم نشر التصميم وأصبح ظاهراً في المعرض.');
+  }
+
+  async function refreshProductImagesById(product: CatalogProduct) {
+    try {
+      const result = await apiRequest<{ images: readonly ProductImage[] }>(
+        `/api/v1/manager/catalog/products/${product.id}/images`,
+      );
+      setProductImages((current) => ({ ...current, [product.id]: result.images }));
+    } catch {
+      setProductImages((current) => ({ ...current, [product.id]: [] }));
+    }
+  }
+
+  async function uploadProductImage(event: FormEvent<HTMLFormElement>, product: CatalogProduct) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const file = form.get('file');
+    if (!(file instanceof File) || !file.size) throw new Error('اختر صورة أولاً.');
+    const response = await fetch(`/api/v1/manager/catalog/products/${product.id}/images`, {
+      body: form,
+      method: 'POST',
+    });
+    const payload = (await response.json().catch(() => ({}))) as { detail?: string };
+    if (!response.ok) throw new Error(payload.detail ?? 'تعذر رفع الصورة.');
+    event.currentTarget.reset();
+    await refreshProductImagesById(product);
+  }
+
+  async function setPrimaryProductImage(product: CatalogProduct, imageId: string) {
+    await perform(async () => {
+      await apiRequest(`/api/v1/manager/catalog/products/${product.id}/images`, {
+        body: JSON.stringify({ imageId, isPrimary: true }),
+        method: 'PATCH',
+      });
+      await refreshProductImagesById(product);
+    }, 'تم تعيين الصورة الرئيسية.');
+  }
+
+  async function deleteProductImage(product: CatalogProduct, imageId: string) {
+    await perform(async () => {
+      await apiRequest(`/api/v1/manager/catalog/products/${product.id}/images`, {
+        body: JSON.stringify({ imageId }),
+        method: 'DELETE',
+      });
+      await refreshProductImagesById(product);
+    }, 'تم حذف الصورة.');
   }
 
   async function openRequest(requestId: string) {
@@ -465,6 +533,57 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                   <span className="status-badge">{stateLabel(product.lifecycle)}</span>
                 </div>
                 <p>{product.description || 'لا يوجد وصف بعد.'}</p>
+                <div className="workflow-stack">
+                  <form
+                    className="workflow-form workflow-form--compact"
+                    onSubmit={(event) => void perform(() => uploadProductImage(event, product), 'تم رفع الصورة.')}
+                  >
+                    <label className="workflow-form__full">
+                      صور المنتج
+                      <input accept="image/jpeg,image/png,image/webp" name="file" required type="file" />
+                    </label>
+                    <label className="workflow-form__full">
+                      نص بديل
+                      <input maxLength={120} name="altText" />
+                    </label>
+                    <button className="button button--small" disabled={busy} type="submit">
+                      رفع صورة
+                    </button>
+                  </form>
+                  {(productImages[product.id] ?? []).length === 0 ? (
+                    <p className="workspace-empty">لا توجد صور بعد.</p>
+                  ) : (
+                    <div className="workflow-stack">
+                      {(productImages[product.id] ?? []).map((image) => (
+                        <div className="workflow-card" key={image.id}>
+                          <img
+                            alt={image.altText ?? product.name}
+                            src={image.publicUrl}
+                            style={{ borderRadius: '0.5rem', height: '120px', objectFit: 'cover', width: '100%' }}
+                          />
+                          <div className="workflow-actions">
+                            <button
+                              className="button button--secondary button--small"
+                              disabled={busy}
+                              onClick={() => void setPrimaryProductImage(product, image.id)}
+                              type="button"
+                            >
+                              {image.isPrimary ? 'رئيسية حالياً' : 'تعيين رئيسية'}
+                            </button>
+                            <button
+                              className="button button--secondary button--small"
+                              disabled={busy}
+                              onClick={() => void deleteProductImage(product, image.id)}
+                              type="button"
+                            >
+                              حذف
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {product.lifecycle === 'DRAFT' ? (
                   <details>
                     <summary className="text-link">تعديل المسودة</summary>

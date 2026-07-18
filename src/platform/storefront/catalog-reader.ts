@@ -3,6 +3,7 @@ import 'server-only';
 import type { Pool } from 'pg';
 
 import { createDatabasePool, withActorTransaction } from '../database';
+import { mapStorefrontProductRow } from '../workflow';
 
 type StorefrontVisual = 'bed' | 'cabinet' | 'chair' | 'shelf' | 'sofa' | 'table' | 'tv-unit';
 
@@ -12,6 +13,8 @@ export type StorefrontProduct = Readonly<{
   furnitureType: string;
   furnitureTypeLabel: string;
   id: string;
+  imageAlt?: string;
+  imageUrl?: string;
   name: string;
   productionInformation?: string;
   visual: StorefrontVisual;
@@ -100,6 +103,8 @@ type CatalogRow = Readonly<{
   description: string | null;
   furniture_type: string;
   id: string;
+  image_alt: string | null;
+  image_url: string | null;
   name: string | null;
   production_information: string | null;
 }>;
@@ -120,16 +125,27 @@ function mapDatabaseProduct(row: CatalogRow): StorefrontProduct | undefined {
   const name = row.name?.trim();
   if (!name) return undefined;
   const presentation = presentationFor(row.furniture_type);
+  const mapped = mapStorefrontProductRow({
+    description: row.description,
+    furniture_type: row.furniture_type,
+    id: row.id,
+    image_alt: row.image_alt,
+    image_url: row.image_url,
+    name: row.name,
+    production_information: row.production_information,
+  });
 
   return Object.freeze({
     categoryLabel: presentation.label,
-    description: row.description?.trim() || 'تصميم يُنفذ حسب متطلبات المساحة والذوق.',
-    furnitureType: row.furniture_type,
+    description: mapped.description,
+    furnitureType: mapped.furnitureType,
     furnitureTypeLabel: presentation.label,
-    id: row.id,
-    name,
-    ...(row.production_information ? { productionInformation: row.production_information } : {}),
-    visual: presentation.visual,
+    id: mapped.id,
+    name: mapped.name,
+    ...(mapped.productionInformation ? { productionInformation: mapped.productionInformation } : {}),
+    visual: mapped.visual,
+    ...(mapped.imageUrl ? { imageUrl: mapped.imageUrl } : {}),
+    ...(mapped.imageAlt ? { imageAlt: mapped.imageAlt } : {}),
   });
 }
 
@@ -161,10 +177,19 @@ async function readPublishedProducts(): Promise<readonly StorefrontProduct[]> {
       const result = await transaction.query<CatalogRow>(
         `select p.id, p.furniture_type, p.production_information,
                 nullif(t.content_json ->> 'name', '') as name,
-                nullif(t.content_json ->> 'description', '') as description
+                nullif(t.content_json ->> 'description', '') as description,
+                pi.public_url as image_url,
+                pi.alt_text as image_alt
          from catalog.products p
          join cms.localized_resources r on r.id = p.localized_resource_id
          join cms.translation_revisions t on t.id = r.current_ar_revision_id
+         left join lateral (
+           select pi.public_url, pi.alt_text
+           from catalog.product_images pi
+           where pi.product_id = p.id and pi.is_primary
+           order by pi.sort_order, pi.created_at, pi.id
+           limit 1
+         ) pi on true
          where p.lifecycle = 'PUBLISHED'
            and t.lifecycle = 'PUBLISHED'
            and not t.stale_source

@@ -84,6 +84,25 @@
       "riskClass": "C",
       "transactionSafe": true,
       "verification": "npm run test:postgres"
+        },
+    {
+      "backwardCompatibility": "Additive public product image support; existing catalog products remain readable",
+      "checksumSha256": "ffcde0a51552fc8e468ba6a118bcdab446b8741f5e7bb8aa20cb8c652667278d",
+      "dataEffect": "Adds catalog product image records and primary-image constraints",
+      "dependencies": [
+        "20260716000400"
+      ],
+      "expectedLock": "Brief metadata locks while creating the table, indexes, grants, and policies",
+      "file": "20260718000200_lean_product_images.sql",
+      "id": "20260718000200",
+      "owners": [
+        "catalog",
+        "media"
+      ],
+      "recovery": "Rollback the uncommitted transaction; use a reviewed forward-fix after commit",
+      "riskClass": "C",
+      "transactionSafe": true,
+      "verification": "npm run test:postgres"
     }
   ]
-}
+} 

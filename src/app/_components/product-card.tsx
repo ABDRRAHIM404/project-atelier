@@ -11,7 +11,15 @@ export function ProductCard({ product }: ProductCardProps) {
   return (
     <article className="product-card">
       <Link className="product-card__visual-link" href={`/catalog/${product.id}`}>
-        <ProductVisual label={product.name} visual={product.visual} />
+        {product.imageUrl ? (
+          <img
+            alt={product.imageAlt ?? product.name}
+            src={product.imageUrl}
+            style={{ height: '100%', objectFit: 'cover', width: '100%' }}
+          />
+        ) : (
+          <ProductVisual label={product.name} visual={product.visual} />
+        )}
       </Link>
       <div className="product-card__body">
         <p className="eyebrow">{product.categoryLabel}</p>

@@ -37,7 +37,7 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
          'messaging', 'notifications')
        order by schemaname, tablename`,
     );
-    expect(tables.rows).toHaveLength(63);
+    expect(tables.rows).toHaveLength(64);
     expect(tables.rows).toContainEqual({ schema_name: 'iam', table_name: 'principals' });
     expect(tables.rows).toContainEqual({ schema_name: 'ops', table_name: 'outbox_events' });
   });
@@ -67,9 +67,14 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
         id: '20260716000400',
         transactionSafe: true,
       },
+      {
+        file: '20260718000200_lean_product_images.sql',
+        id: '20260718000200',
+        transactionSafe: true,
+      },
     ]);
 
-    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(4);
+    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(5);
     const history = await client.query<{ name: string; version: string }>(
       `select version, name from supabase_migrations.schema_migrations order by version`,
     );
@@ -78,6 +83,7 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
       { name: 'p2_discovery_content_files', version: '20260716000200' },
       { name: 'lean_core_workflow', version: '20260716000300' },
       { name: 'customer_fulfilment_details', version: '20260716000400' },
+      { name: 'lean_product_images', version: '20260718000200' },
     ]);
   });
 
@@ -186,7 +192,7 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
          'projects', 'quotes', 'orders', 'payments', 'production', 'fulfilment',
          'messaging', 'notifications')`,
     );
-    expect(rls.rows[0]).toEqual({ forced_count: 63, relation_count: 63, secured_count: 63 });
+    expect(rls.rows[0]).toEqual({ forced_count: 64, relation_count: 64, secured_count: 64 });
   });
 
   it('registers configuration decisions without inventing values', async () => {

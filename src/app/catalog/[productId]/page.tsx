@@ -31,7 +31,15 @@ export default async function ProductPage({ params }: ProductPageProps) {
       <main id="main-content" tabIndex={-1}>
         <section className="product-detail section-shell" aria-labelledby="product-title">
           <div className="product-detail__visual">
-            <ProductVisual label={product.name} visual={product.visual} />
+            {product.imageUrl ? (
+              <img
+                alt={product.imageAlt ?? product.name}
+                src={product.imageUrl}
+                style={{ height: '100%', objectFit: 'cover', width: '100%' }}
+              />
+            ) : (
+              <ProductVisual label={product.name} visual={product.visual} />
+            )}
           </div>
           <div className="product-detail__content">
             <nav className="breadcrumbs" aria-label={translate('breadcrumbsLabel')}>
