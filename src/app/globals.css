@@ -37,7 +37,7 @@ html {
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   background:
     radial-gradient(circle at 10% 0%, rgb(15 118 110 / 9%), transparent 30rem),
@@ -51,11 +51,22 @@ body {
     var(--paper);
 }
 
+.site-shell {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+}
+
+.site-shell > main {
+  flex: 1;
+}
+
 body,
 button,
 input {
   font: inherit;
 }
+
 
 a {
   color: inherit;
