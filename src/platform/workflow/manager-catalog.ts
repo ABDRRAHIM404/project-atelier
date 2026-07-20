@@ -310,7 +310,7 @@ export class ManagerCatalogService {
          limit 1
        ) t on true
        where p.id = $1
-       for update`,
+       for update of p`,
       [parsed.productId],
     );
 
@@ -383,7 +383,7 @@ export class ManagerCatalogService {
          limit 1
        ) t on true
        where p.id = $1
-       for update`,
+       for update of p`,
       [parsed.productId],
     );
 
