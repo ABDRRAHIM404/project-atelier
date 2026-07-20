@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { apiRequest, formatDate, formatMoney, stateLabel } from './client-api';
 import { DemoRoleSwitch } from './demo-role-switch';
@@ -86,10 +86,16 @@ type Message = Readonly<{
   sentAt: string;
 }>;
 
+type CustomerTab = 'projects' | 'quotations' | 'orders' | 'messages' | 'notifications';
+
 type CustomerDashboardProps = Readonly<{
   demoEnabled: boolean;
   initialProductId?: string | undefined;
 }>;
+
+function badgeText(count: number): string {
+  return count > 9 ? '9+' : String(count);
+}
 
 function formText(form: FormData, key: string): string {
   return String(form.get(key) ?? '').trim();
@@ -115,6 +121,9 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [activeTab, setActiveTab] = useState<CustomerTab>('projects');
+  const [managedProjectId, setManagedProjectId] = useState<string>();
+  const initialTabChosen = useRef(false);
 
   const refresh = useCallback(async () => {
     setError('');
@@ -146,6 +155,16 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       setOrders(orderResult.orders);
       setNotifications(notificationResult.notifications);
       setMessages(messageResult.messages);
+      if (!initialTabChosen.current) {
+        initialTabChosen.current = true;
+        setActiveTab(
+          quotationResult.quotations.some((quotation) => quotation.state === 'SENT')
+            ? 'quotations'
+            : orderResult.orders.length > 0
+              ? 'orders'
+              : 'projects',
+        );
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر تحميل مساحة العميل.');
     }
@@ -228,6 +247,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
   }
 
   async function openOrder(orderId: string) {
+    setActiveTab('orders');
     setBusy(true);
     setError('');
     try {
@@ -293,6 +313,9 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     }, 'تم إرسال الرسالة.');
   }
 
+  const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
+  const actionableQuotationCount = quotations.filter((quotation) => quotation.state === 'SENT').length;
+
   return (
     <main className="workspace section-shell" id="main-content" tabIndex={-1}>
       <header className="workspace__hero">
@@ -318,30 +341,53 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         </div>
       ) : null}
 
-      <div className="workspace-grid">
-        <section className="workspace-panel" aria-labelledby="new-project-title">
+      <nav className="customer-tabs" aria-label="أقسام مساحة العميل" role="tablist">
+        <button aria-controls="customer-panel-projects" aria-selected={activeTab === 'projects'} className={`customer-tab${activeTab === 'projects' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('projects')} role="tab" type="button">
+          المشاريع <span className="customer-tab__count">{projects.length}</span>
+        </button>
+        <button aria-controls="customer-panel-quotations" aria-selected={activeTab === 'quotations'} className={`customer-tab${activeTab === 'quotations' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('quotations')} role="tab" type="button">
+          عروض السعر
+          {actionableQuotationCount > 0 ? <span className="customer-tab__badge">{badgeText(actionableQuotationCount)}</span> : null}
+        </button>
+        <button aria-controls="customer-panel-orders" aria-selected={activeTab === 'orders'} className={`customer-tab${activeTab === 'orders' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('orders')} role="tab" type="button">
+          الطلبات <span className="customer-tab__count">{orders.length}</span>
+        </button>
+        <button aria-controls="customer-panel-messages" aria-selected={activeTab === 'messages'} className={`customer-tab${activeTab === 'messages' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('messages')} role="tab" type="button">
+          الرسائل
+        </button>
+        <button aria-controls="customer-panel-notifications" aria-selected={activeTab === 'notifications'} className={`customer-tab${activeTab === 'notifications' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('notifications')} role="tab" type="button">
+          الإشعارات
+          {unreadNotificationCount > 0 ? <span className="customer-tab__badge">{badgeText(unreadNotificationCount)}</span> : null}
+        </button>
+      </nav>
+
+      <div className="workspace-grid customer-workspace-grid">
+        <section className="workspace-panel workspace-panel--full customer-create-project" aria-labelledby="new-project-title" hidden={activeTab !== 'projects'}>
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">ابدأ الطلب</p>
               <h2 id="new-project-title">مشروع جديد</h2>
             </div>
           </div>
-          <form className="workflow-form" onSubmit={createProject}>
-            <label>
-              اسم المشروع
-              <input name="projectName" placeholder="مثال: مجلس العائلة" required minLength={2} />
-            </label>
-            <label>
-              ملاحظات عامة
-              <textarea name="customerNotes" placeholder="صف المساحة أو الفكرة باختصار" rows={3} />
-            </label>
-            <button className="button" disabled={busy} type="submit">
-              إنشاء المسودة
-            </button>
-          </form>
+          <details className="customer-create-panel">
+            <summary>إنشاء مشروع جديد</summary>
+            <form className="workflow-form customer-create-panel__form" onSubmit={createProject}>
+              <label>
+                اسم المشروع
+                <input name="projectName" placeholder="مثال: مجلس العائلة" required minLength={2} />
+              </label>
+              <label>
+                ملاحظات عامة
+                <textarea name="customerNotes" placeholder="صف المساحة أو الفكرة باختصار" rows={3} />
+              </label>
+              <button className="button" disabled={busy} type="submit">
+                إنشاء المسودة
+              </button>
+            </form>
+          </details>
         </section>
 
-        <section className="workspace-panel workspace-panel--wide" aria-labelledby="projects-title">
+        <section aria-labelledby="projects-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'projects'} id="customer-panel-projects" role="tabpanel" tabIndex={0}>
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">طلباتك</p>
@@ -350,7 +396,11 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
             <span className="count-pill">{projects.length}</span>
           </div>
           {projects.length === 0 ? (
-            <p className="workspace-empty">لا توجد مشاريع بعد.</p>
+            <div className="customer-empty-state">
+                <h3>ابدأ مشروعك الأول</h3>
+                <p>أنشئ مسودة، أضف التصميم والمقاسات، ثم أرسلها للمراجعة.</p>
+                <button className="button button--small" onClick={() => document.querySelector<HTMLDetailsElement>('.customer-create-panel')?.setAttribute('open', '')} type="button">إنشاء مشروع</button>
+              </div>
           ) : (
             <div className="workflow-stack">
               {projects.map((project) => (
@@ -366,6 +416,15 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   </div>
                   {project.state === 'DRAFT' ? (
                     <>
+                      <button
+                        aria-expanded={managedProjectId === project.id}
+                        className="button button--secondary button--small"
+                        onClick={() => setManagedProjectId(managedProjectId === project.id ? undefined : project.id)}
+                        type="button"
+                      >
+                        {managedProjectId === project.id ? 'إغلاق التعديل' : 'إضافة تصميم'}
+                      </button>
+                      {managedProjectId === project.id ? (
                       <form
                         className="workflow-form workflow-form--compact"
                         onSubmit={(event) => addItem(event, project.id)}
@@ -413,6 +472,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                           إضافة التصميم
                         </button>
                       </form>
+                      ) : null}
                       <button
                         className="button button--small"
                         disabled={busy || project.itemCount === 0}
@@ -429,7 +489,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           )}
         </section>
 
-        <section className="workspace-panel" aria-labelledby="quotes-title">
+        <section aria-labelledby="quotes-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'quotations'} id="customer-panel-quotations" role="tabpanel" tabIndex={0}>
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">التسعير</p>
@@ -439,7 +499,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </div>
           <div className="workflow-stack">
             {quotations.length === 0 ? (
-              <p className="workspace-empty">لا يوجد عرض سعر حاليًا.</p>
+              <div className="customer-empty-state"><h3>لا يوجد عرض سعر بعد</h3><p>سيظهر عرض المدير هنا بعد مراجعة مشروعك.</p></div>
             ) : (
               quotations.map((quotation) => (
                 <article className="workflow-card" key={quotation.revisionId}>
@@ -467,7 +527,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </div>
         </section>
 
-        <section className="workspace-panel workspace-panel--wide" aria-labelledby="orders-title">
+        <section aria-labelledby="orders-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'orders'} id="customer-panel-orders" role="tabpanel" tabIndex={0}>
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">المتابعة</p>
@@ -477,7 +537,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </div>
           <div className="workflow-stack">
             {orders.length === 0 ? (
-              <p className="workspace-empty">لا توجد طلبات معتمدة بعد.</p>
+              <div className="customer-empty-state"><h3>لا توجد طلبات حالية</h3><p>بعد اعتماد عرض السعر، ستتابع الدفع والإنتاج والتسليم من هنا.</p></div>
             ) : (
               orders.map((order) => (
                 <article className="workflow-card" key={order.id}>
@@ -661,7 +721,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           ) : null}
         </section>
 
-        <section className="workspace-panel" aria-labelledby="messages-title">
+        <section aria-labelledby="messages-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'messages'} id="customer-panel-messages" role="tabpanel" tabIndex={0}>
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">التواصل</p>
@@ -695,7 +755,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </form>
         </section>
 
-        <section className="workspace-panel" aria-labelledby="notifications-title">
+        <section aria-labelledby="notifications-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'notifications'} id="customer-panel-notifications" role="tabpanel" tabIndex={0}>
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">آخر المستجدات</p>
