@@ -280,6 +280,34 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     }, 'تم نشر التصميم وأصبح ظاهراً في المعرض.');
   }
 
+  async function archiveCatalogProduct(product: CatalogProduct) {
+    const confirmed = window.confirm(
+      'سيختفي التصميم من المعرض، لكن ستبقى الطلبات والسجلات القديمة محفوظة. هل تريد المتابعة؟',
+    );
+    if (!confirmed) return;
+
+    await perform(async () => {
+      await apiRequest(`/api/v1/manager/catalog/products/${product.id}/archive`, {
+        body: JSON.stringify({ expectedVersion: product.recordVersion }),
+        method: 'POST',
+      });
+      setManagedProductId(undefined);
+    }, 'تم نقل التصميم إلى الأرشيف.');
+  }
+
+  async function restoreCatalogProduct(product: CatalogProduct) {
+    const confirmed = window.confirm('هل تريد إعادة نشر هذا التصميم في المعرض؟');
+    if (!confirmed) return;
+
+    await perform(async () => {
+      await apiRequest(`/api/v1/manager/catalog/products/${product.id}/restore`, {
+        body: JSON.stringify({ expectedVersion: product.recordVersion }),
+        method: 'POST',
+      });
+      setManagedProductId(undefined);
+    }, 'تم استعادة التصميم ونشره في المعرض.');
+  }
+
   async function refreshProductImagesById(product: CatalogProduct) {
     try {
       const result = await apiRequest<{ images: readonly ProductImage[] }>(
@@ -763,6 +791,39 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                                 <button className="button button--secondary button--small" disabled={busy} onClick={() => void publishCatalogDraft(product)} type="button">نشر التصميم</button>
                               </div>
                             </form>
+                          </div>
+                        ) : null}
+                        {product.lifecycle === 'PUBLISHED' ? (
+                          <div className="catalog-lifecycle-actions">
+                            <h4>إزالة التصميم من المعرض</h4>
+                            <p className="field-help">
+                              الأرشفة تخفي التصميم عن العملاء وتحافظ على الطلبات والسجلات السابقة.
+                            </p>
+                            <button
+                              className="plain-button plain-button--danger"
+                              disabled={busy}
+                              onClick={() => void archiveCatalogProduct(product)}
+                              type="button"
+                            >
+                              أرشفة التصميم
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {product.lifecycle === 'ARCHIVED' ? (
+                          <div className="catalog-lifecycle-actions">
+                            <h4>التصميم مؤرشف</h4>
+                            <p className="field-help">
+                              يمكنك إعادته إلى المعرض بنفس البيانات والصور.
+                            </p>
+                            <button
+                              className="button button--secondary button--small"
+                              disabled={busy}
+                              onClick={() => void restoreCatalogProduct(product)}
+                              type="button"
+                            >
+                              استعادة ونشر التصميم
+                            </button>
                           </div>
                         ) : null}
                       </div>
