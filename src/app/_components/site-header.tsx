@@ -42,14 +42,16 @@ export async function SiteHeader() {
 
           <Show when="signed-out">
             <SignInButton mode="modal">
-              <button className="button button--secondary button--small" type="button">
-                تسجيل الدخول
+              <button className="button button--secondary button--small site-header__sign-in" type="button">
+                <span className="site-header__label--desktop">تسجيل الدخول</span>
+                <span className="site-header__label--mobile">دخول</span>
               </button>
             </SignInButton>
           </Show>
 
-          <Link className="button button--small" href="/workspace">
-            ابدأ مشروعك
+          <Link className="button button--small site-header__start" href="/workspace">
+            <span className="site-header__label--desktop">ابدأ مشروعك</span>
+            <span className="site-header__label--mobile">ابدأ</span>
           </Link>
         </div>
       </div>

@@ -175,6 +175,13 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(''), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   async function perform(action: () => Promise<void>, success: string) {
     setBusy(true);
     setError('');

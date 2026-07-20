@@ -2215,3 +2215,308 @@ p {
     width: 100%;
   }
 }
+
+
+/* Shared mobile polish: header, dashboard tabs, compact cards and footer. */
+.site-header__label--mobile {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .site-header__inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: auto;
+    padding-block: 0.65rem 0;
+    gap: 0.55rem 0.8rem;
+  }
+
+  .brand__logo {
+    width: 6.25rem;
+  }
+
+  .site-header__actions {
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 0.4rem;
+  }
+
+  /* Override the older rule that hides every header button on mobile. */
+  .site-header .site-header__actions .button {
+    display: inline-flex;
+    min-height: 2.45rem;
+    padding-inline: 0.75rem;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .site-header__actions [data-clerk-component] {
+    flex: 0 0 auto;
+  }
+
+  .site-header__label--desktop {
+    display: none;
+  }
+
+  .site-header__label--mobile {
+    display: inline;
+  }
+
+  .primary-navigation {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    width: 100%;
+    overflow-x: auto;
+    padding: 0.55rem 0 0.75rem;
+    gap: 1.3rem;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .primary-navigation::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workspace {
+    padding-block: 1.35rem 2.5rem;
+  }
+
+  .workspace__hero {
+    align-items: stretch;
+    margin-block-end: 0.85rem;
+    padding: 1.25rem;
+    border-radius: 1.4rem;
+    gap: 1rem;
+  }
+
+  .workspace__hero h1 {
+    max-width: 18ch;
+    margin-block-end: 0.55rem;
+    font-size: clamp(1.85rem, 8vw, 2.35rem);
+    line-height: 1.18;
+  }
+
+  .workspace__hero p:last-child {
+    font-size: 0.92rem;
+    line-height: 1.75;
+  }
+
+  .workspace__hero > .button {
+    width: 100%;
+    min-height: 2.85rem;
+  }
+
+  .manager-tabs,
+  .customer-tabs {
+    position: sticky;
+    z-index: 12;
+    inset-block-start: 7.3rem;
+    width: 100%;
+    max-width: 100%;
+    margin-block: 0.75rem 1rem;
+    padding: 0.35rem;
+    overflow-x: auto;
+    border-radius: 1rem;
+    scroll-padding-inline: 0.35rem;
+    scroll-snap-type: inline proximity;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .manager-tabs::-webkit-scrollbar,
+  .customer-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .manager-tab,
+  .customer-tab {
+    min-height: 2.7rem;
+    padding: 0.55rem 0.85rem;
+    font-size: 0.84rem;
+    scroll-snap-align: start;
+  }
+
+  .manager-tab:first-child,
+  .customer-tab:first-child {
+    margin-inline-start: 0.1rem;
+  }
+
+  .manager-tab:last-child,
+  .customer-tab:last-child {
+    margin-inline-end: 0.1rem;
+  }
+
+  .workspace-grid,
+  .manager-workspace-grid,
+  .customer-workspace-grid {
+    gap: 0.85rem;
+  }
+
+  .workspace-panel {
+    padding: 1rem;
+    border-radius: 1.15rem;
+  }
+
+  .workspace-panel__heading {
+    margin-block-end: 0.8rem;
+  }
+
+  .workspace-panel__heading h2 {
+    font-size: 1.45rem;
+  }
+
+  .workflow-card {
+    padding: 0.95rem;
+    border-radius: 1rem;
+  }
+
+  .workflow-card__heading {
+    gap: 0.75rem;
+  }
+
+  .workflow-card__heading span,
+  .catalog-product-card__meta {
+    font-size: 0.78rem;
+  }
+
+  .customer-create-project {
+    padding: 0.75rem;
+  }
+
+  .customer-create-project > .workspace-panel__heading {
+    display: none;
+  }
+
+  .customer-create-panel summary,
+  .catalog-create-panel summary {
+    min-height: 3.2rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .customer-empty-state {
+    padding: 2rem 1rem;
+  }
+
+  /* Keep manager products compact instead of turning every image into a full-width banner. */
+  .catalog-product-card {
+    grid-template-columns: 7.25rem minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .catalog-product-card__image {
+    min-height: 8.5rem;
+    aspect-ratio: auto;
+  }
+
+  .catalog-product-card__placeholder {
+    min-height: 8.5rem;
+  }
+
+  .catalog-product-card__content {
+    padding: 0.85rem;
+    gap: 0.5rem;
+  }
+
+  .catalog-product-card__heading {
+    gap: 0.5rem;
+  }
+
+  .catalog-product-card__heading h3 {
+    font-size: 1.05rem;
+  }
+
+  .catalog-product-card__content > p {
+    font-size: 0.8rem;
+    line-height: 1.55;
+  }
+
+  .catalog-product-card__content > .button {
+    width: 100%;
+    min-height: 2.45rem;
+  }
+
+  .catalog-product-manager {
+    grid-column: 1 / -1;
+    padding: 0.9rem;
+  }
+
+  .catalog-filters {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-block-end: 0.15rem;
+    scrollbar-width: none;
+  }
+
+  .catalog-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .catalog-filter {
+    min-height: 2.45rem;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  .catalog-image-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .catalog-image-card img {
+    aspect-ratio: 4 / 3;
+    height: auto;
+  }
+
+  .site-footer {
+    margin-block-start: 0;
+    padding-block: 2.25rem 1.5rem;
+  }
+
+  .site-footer__inner {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+
+  .site-footer__logo {
+    width: 7.5rem;
+    margin-block-end: 0.4rem;
+  }
+
+  .site-footer nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+  }
+
+  .site-footer__note {
+    grid-column: auto;
+  }
+
+  .site-footer p,
+  .site-footer nav {
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 390px) {
+  .site-header .site-header__actions .button {
+    padding-inline: 0.6rem;
+    font-size: 0.74rem;
+  }
+
+  .manager-tab,
+  .customer-tab {
+    padding-inline: 0.72rem;
+    font-size: 0.8rem;
+  }
+
+  .catalog-product-card {
+    grid-template-columns: 6.4rem minmax(0, 1fr);
+  }
+
+  .catalog-product-card__image,
+  .catalog-product-card__placeholder {
+    min-height: 7.75rem;
+  }
+}
