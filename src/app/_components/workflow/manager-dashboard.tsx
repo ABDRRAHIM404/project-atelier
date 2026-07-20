@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { apiRequest, formatDate, formatMoney, stateLabel } from './client-api';
 import { DemoRoleSwitch } from './demo-role-switch';
@@ -107,6 +107,9 @@ type ProductImage = Readonly<{
 
 type ManagerDashboardProps = Readonly<{ demoEnabled: boolean }>;
 
+type ManagerTab = 'catalog' | 'requests' | 'orders' | 'messages' | 'notifications';
+type CatalogFilter = 'ALL' | 'PUBLISHED' | 'DRAFT' | 'ARCHIVED';
+
 const nextProductionState: Readonly<Record<string, string>> = Object.freeze({
   IN_PRODUCTION: 'QUALITY_INSPECTION',
   MATERIALS_PREPARATION: 'IN_PRODUCTION',
@@ -122,6 +125,10 @@ function minorFromForm(form: FormData, key: string): number {
   const value = Number(formText(form, key));
   if (!Number.isFinite(value) || value < 0) throw new Error('أدخل مبلغًا صحيحًا.');
   return Math.round(value * 100);
+}
+
+function badgeText(count: number): string {
+  return count > 9 ? '9+' : String(count);
 }
 
 function configurationText(configuration: Record<string, unknown>): string {
@@ -156,6 +163,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [activeTab, setActiveTab] = useState<ManagerTab>('catalog');
+  const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('ALL');
+  const [managedProductId, setManagedProductId] = useState<string>();
+  const initialTabChosen = useRef(false);
 
   const refresh = useCallback(async () => {
     setError('');
@@ -176,6 +187,16 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
       setOrders(orderResult.orders);
       setNotifications(notificationResult.notifications);
       setCatalogProducts(catalogResult.products);
+      if (!initialTabChosen.current) {
+        initialTabChosen.current = true;
+        setActiveTab(
+          requestResult.requests.length > 0
+            ? 'requests'
+            : orderResult.orders.length > 0
+              ? 'orders'
+              : 'catalog',
+        );
+      }
       const imageEntries = await Promise.all(
         catalogResult.products.map(async (product) => {
           try {
@@ -308,6 +329,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }
 
   async function openRequest(requestId: string) {
+    setActiveTab('requests');
     setBusy(true);
     setError('');
     try {
@@ -355,6 +377,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }
 
   async function openOrder(orderId: string) {
+    setActiveTab('orders');
     setBusy(true);
     setError('');
     try {
@@ -441,6 +464,17 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     }, 'تم إرسال الرسالة للعميل.');
   }
 
+  const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
+  const filteredCatalogProducts = catalogProducts.filter(
+    (product) => catalogFilter === 'ALL' || product.lifecycle === catalogFilter,
+  );
+  const catalogCounts = {
+    ALL: catalogProducts.length,
+    ARCHIVED: catalogProducts.filter((product) => product.lifecycle === 'ARCHIVED').length,
+    DRAFT: catalogProducts.filter((product) => product.lifecycle === 'DRAFT').length,
+    PUBLISHED: catalogProducts.filter((product) => product.lifecycle === 'PUBLISHED').length,
+  } as const;
+
   const latestSubmission = orderDetail?.paymentSubmissions.at(-1);
   const nextState =
     orderDetail &&
@@ -473,10 +507,78 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         </div>
       ) : null}
 
-      <div className="workspace-grid">
+      <nav className="manager-tabs" aria-label="أقسام لوحة المدير" role="tablist">
+        <button
+          aria-controls="manager-panel-catalog"
+          aria-selected={activeTab === 'catalog'}
+          className={`manager-tab${activeTab === 'catalog' ? ' manager-tab--active' : ''}`}
+          id="manager-tab-catalog"
+          onClick={() => setActiveTab('catalog')}
+          role="tab"
+          type="button"
+        >
+          الكتالوج <span className="manager-tab__count">{catalogProducts.length}</span>
+        </button>
+        <button
+          aria-controls="manager-panel-requests"
+          aria-selected={activeTab === 'requests'}
+          className={`manager-tab${activeTab === 'requests' ? ' manager-tab--active' : ''}`}
+          id="manager-tab-requests"
+          onClick={() => setActiveTab('requests')}
+          role="tab"
+          type="button"
+        >
+          الطلبات الجديدة
+          {requests.length > 0 ? <span className="manager-tab__badge">{badgeText(requests.length)}</span> : null}
+        </button>
+        <button
+          aria-controls="manager-panel-orders"
+          aria-selected={activeTab === 'orders'}
+          className={`manager-tab${activeTab === 'orders' ? ' manager-tab--active' : ''}`}
+          id="manager-tab-orders"
+          onClick={() => setActiveTab('orders')}
+          role="tab"
+          type="button"
+        >
+          الطلبات المعتمدة
+          {orders.length > 0 ? <span className="manager-tab__badge">{badgeText(orders.length)}</span> : null}
+        </button>
+        <button
+          aria-controls="manager-panel-messages"
+          aria-selected={activeTab === 'messages'}
+          className={`manager-tab${activeTab === 'messages' ? ' manager-tab--active' : ''}`}
+          id="manager-tab-messages"
+          onClick={() => setActiveTab('messages')}
+          role="tab"
+          type="button"
+        >
+          الرسائل
+        </button>
+        <button
+          aria-controls="manager-panel-notifications"
+          aria-selected={activeTab === 'notifications'}
+          className={`manager-tab${activeTab === 'notifications' ? ' manager-tab--active' : ''}`}
+          id="manager-tab-notifications"
+          onClick={() => setActiveTab('notifications')}
+          role="tab"
+          type="button"
+        >
+          الإشعارات
+          {unreadNotificationCount > 0 ? (
+            <span className="manager-tab__badge">{badgeText(unreadNotificationCount)}</span>
+          ) : null}
+        </button>
+      </nav>
+
+      <div className="workspace-grid manager-workspace-grid">
         <section
-          className="workspace-panel workspace-panel--full"
           aria-labelledby="manager-catalog-title"
+          aria-describedby="manager-catalog-help"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'catalog'}
+          id="manager-panel-catalog"
+          role="tabpanel"
+          tabIndex={0}
         >
           <div className="workspace-panel__heading">
             <div>
@@ -485,183 +587,201 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
             </div>
             <span className="count-pill">{catalogProducts.length}</span>
           </div>
-          <p className="field-help">
-            أنشئ وعدّل بيانات التصميم هنا. يبقى التصميم مسودة إلى أن تكتمل الترجمة والصورة الآمنة ثم
-            يُنشر عبر مسار الوسائط المعتمد.
+          <p className="field-help" id="manager-catalog-help">
+            أضف التصاميم، أدِر الصور، وعدّل المسودات من مكان واحد منظم.
           </p>
-          <form className="workflow-form" onSubmit={createCatalogDraft}>
-            <label>
-              اسم التصميم
-              <input name="name" required minLength={2} maxLength={120} />
-            </label>
-            <label>
-              النوع
-              <select name="furnitureType" defaultValue="SOFA">
-                <option value="SOFA">كنبة</option>
-                <option value="BED">سرير</option>
-                <option value="DINING_TABLE">طاولة طعام</option>
-                <option value="WARDROBE">دولاب</option>
-                <option value="TV_UNIT">وحدة تلفاز</option>
-                <option value="SHELF">مكتبة أو رف</option>
-                <option value="DESK">مكتب</option>
-                <option value="CHAIR">كرسي</option>
-                <option value="OTHER">أخرى</option>
-              </select>
-            </label>
-            <label>
-              السعر الابتدائي (ر.س)
-              <input name="startingPrice" min="0" required step="0.01" type="number" />
-            </label>
-            <label className="workflow-form__full">
-              الوصف العربي
-              <textarea name="description" required minLength={10} maxLength={2000} rows={3} />
-            </label>
-            <label className="workflow-form__full">
-              معلومات التنفيذ
-              <textarea name="productionInformation" maxLength={1000} rows={2} />
-            </label>
-            <button className="button" disabled={busy} type="submit">
-              حفظ كمسودة
-            </button>
-          </form>
-          <div className="workflow-stack">
-            {catalogProducts.map((product) => (
-              <article className="workflow-card" key={product.id}>
-                <div className="workflow-card__heading">
-                  <div>
-                    <h3>{product.name}</h3>
-                    <span>{formatMoney(product.startingAmountMinor, 'SAR')}</span>
-                  </div>
-                  <span className="status-badge">{stateLabel(product.lifecycle)}</span>
-                </div>
-                <p>{product.description || 'لا يوجد وصف بعد.'}</p>
-                <div className="workflow-stack">
-                  <form
-                    className="workflow-form workflow-form--compact"
-                    onSubmit={(event) => void perform(() => uploadProductImage(event, product), 'تم رفع الصورة.')}
-                  >
-                    <label className="workflow-form__full">
-                      صور المنتج
-                      <input accept="image/jpeg,image/png,image/webp" name="file" required type="file" />
-                    </label>
-                    <label className="workflow-form__full">
-                      نص بديل
-                      <input maxLength={120} name="altText" />
-                    </label>
-                    <button className="button button--small" disabled={busy} type="submit">
-                      رفع صورة
-                    </button>
-                  </form>
-                  {(productImages[product.id] ?? []).length === 0 ? (
-                    <p className="workspace-empty">لا توجد صور بعد.</p>
-                  ) : (
-                    <div className="workflow-stack">
-                      {(productImages[product.id] ?? []).map((image) => (
-                        <div className="workflow-card" key={image.id}>
-                          <img
-                            alt={image.altText ?? product.name}
-                            src={image.publicUrl}
-                            style={{ borderRadius: '0.5rem', height: '120px', objectFit: 'cover', width: '100%' }}
-                          />
-                          <div className="workflow-actions">
-                            <button
-                              className="button button--secondary button--small"
-                              disabled={busy}
-                              onClick={() => void setPrimaryProductImage(product, image.id)}
-                              type="button"
-                            >
-                              {image.isPrimary ? 'رئيسية حالياً' : 'تعيين رئيسية'}
-                            </button>
-                            <button
-                              className="button button--secondary button--small"
-                              disabled={busy}
-                              onClick={() => void deleteProductImage(product, image.id)}
-                              type="button"
-                            >
-                              حذف
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {product.lifecycle === 'DRAFT' ? (
-                  <details>
-                    <summary className="text-link">تعديل المسودة</summary>
-                    <form
-                      className="workflow-form workflow-form--compact"
-                      onSubmit={(event) => updateCatalogDraft(event, product)}
-                    >
-                      <label>
-                        الاسم
-                        <input defaultValue={product.name} name="name" required minLength={2} />
-                      </label>
-                      <label>
-                        النوع
-                        <select defaultValue={product.furnitureType} name="furnitureType">
-                          <option value="SOFA">كنبة</option>
-                          <option value="BED">سرير</option>
-                          <option value="DINING_TABLE">طاولة طعام</option>
-                          <option value="WARDROBE">دولاب</option>
-                          <option value="TV_UNIT">وحدة تلفاز</option>
-                          <option value="SHELF">مكتبة أو رف</option>
-                          <option value="DESK">مكتب</option>
-                          <option value="CHAIR">كرسي</option>
-                          <option value="OTHER">أخرى</option>
-                        </select>
-                      </label>
-                      <label>
-                        السعر الابتدائي (ر.س)
-                        <input
-                          defaultValue={(product.startingAmountMinor / 100).toFixed(2)}
-                          min="0"
-                          name="startingPrice"
-                          required
-                          step="0.01"
-                          type="number"
-                        />
-                      </label>
-                      <label className="workflow-form__full">
-                        الوصف العربي
-                        <textarea
-                          defaultValue={product.description}
-                          name="description"
-                          required
-                          minLength={10}
-                          rows={3}
-                        />
-                      </label>
-                      <label className="workflow-form__full">
-                        معلومات التنفيذ
-                        <textarea
-                          defaultValue={product.productionInformation}
-                          name="productionInformation"
-                          rows={2}
-                        />
-                      </label>
-                      <div className="workflow-actions">
-                        <button className="button button--small" disabled={busy} type="submit">
-                          حفظ التعديل
-                        </button>
-                        <button
-                          className="button button--secondary button--small"
-                          disabled={busy}
-                          onClick={() => void publishCatalogDraft(product)}
-                          type="button"
-                        >
-                          نشر التصميم
-                        </button>
-                      </div>
-                    </form>
-                  </details>
-                ) : null}
-              </article>
-            ))}
+
+          <details className="catalog-create-panel">
+            <summary>إنشاء تصميم جديد</summary>
+            <form className="workflow-form catalog-create-panel__form" onSubmit={createCatalogDraft}>
+              <label>
+                اسم التصميم
+                <input name="name" required minLength={2} maxLength={120} />
+              </label>
+              <label>
+                النوع
+                <select name="furnitureType" defaultValue="SOFA">
+                  <option value="SOFA">كنبة</option>
+                  <option value="BED">سرير</option>
+                  <option value="DINING_TABLE">طاولة طعام</option>
+                  <option value="WARDROBE">دولاب</option>
+                  <option value="TV_UNIT">وحدة تلفاز</option>
+                  <option value="SHELF">مكتبة أو رف</option>
+                  <option value="DESK">مكتب</option>
+                  <option value="CHAIR">كرسي</option>
+                  <option value="OTHER">أخرى</option>
+                </select>
+              </label>
+              <label>
+                السعر الابتدائي (ر.س)
+                <input name="startingPrice" min="0" required step="0.01" type="number" />
+              </label>
+              <label className="workflow-form__full">
+                الوصف العربي
+                <textarea name="description" required minLength={10} maxLength={2000} rows={3} />
+              </label>
+              <label className="workflow-form__full">
+                معلومات التنفيذ
+                <textarea name="productionInformation" maxLength={1000} rows={2} />
+              </label>
+              <button className="button" disabled={busy} type="submit">حفظ كمسودة</button>
+            </form>
+          </details>
+
+          <div className="catalog-toolbar">
+            <div className="catalog-filters" aria-label="تصفية التصاميم">
+              {([
+                ['ALL', 'الكل'],
+                ['PUBLISHED', 'منشور'],
+                ['DRAFT', 'مسودة'],
+                ['ARCHIVED', 'مؤرشف'],
+              ] as const).map(([value, label]) => (
+                <button
+                  aria-pressed={catalogFilter === value}
+                  className={`catalog-filter${catalogFilter === value ? ' catalog-filter--active' : ''}`}
+                  key={value}
+                  onClick={() => setCatalogFilter(value)}
+                  type="button"
+                >
+                  {label} <span>{catalogCounts[value]}</span>
+                </button>
+              ))}
+            </div>
           </div>
+
+          {filteredCatalogProducts.length === 0 ? (
+            <p className="workspace-empty">لا توجد تصاميم ضمن هذا التصنيف.</p>
+          ) : (
+            <div className="catalog-product-list">
+              {filteredCatalogProducts.map((product) => {
+                const images = productImages[product.id] ?? [];
+                const primaryImage = images.find((image) => image.isPrimary) ?? images[0];
+                const isManaged = managedProductId === product.id;
+                return (
+                  <article className="catalog-product-card" key={product.id}>
+                    <div className="catalog-product-card__image">
+                      {primaryImage ? (
+                        <img alt={primaryImage.altText ?? product.name} src={primaryImage.publicUrl} />
+                      ) : (
+                        <div className="catalog-product-card__placeholder" aria-hidden="true">صورة</div>
+                      )}
+                    </div>
+                    <div className="catalog-product-card__content">
+                      <div className="catalog-product-card__heading">
+                        <div>
+                          <h3>{product.name}</h3>
+                          <strong>{formatMoney(product.startingAmountMinor, 'SAR')}</strong>
+                        </div>
+                        <span className="status-badge">{stateLabel(product.lifecycle)}</span>
+                      </div>
+                      <p>{product.description || 'لا يوجد وصف بعد.'}</p>
+                      <div className="catalog-product-card__meta">
+                        <span>{images.length} {images.length === 1 ? 'صورة' : 'صور'}</span>
+                        <span>الإصدار {product.recordVersion}</span>
+                      </div>
+                      <button
+                        aria-expanded={isManaged}
+                        className="button button--secondary button--small"
+                        onClick={() => setManagedProductId(isManaged ? undefined : product.id)}
+                        type="button"
+                      >
+                        {isManaged ? 'إغلاق الإدارة' : 'إدارة'}
+                      </button>
+                    </div>
+
+                    {isManaged ? (
+                      <div className="catalog-product-manager">
+                        <h4>إدارة الصور</h4>
+                        <form
+                          className="workflow-form workflow-form--compact"
+                          onSubmit={(event) => void perform(() => uploadProductImage(event, product), 'تم رفع الصورة.')}
+                        >
+                          <label className="workflow-form__full">
+                            صورة المنتج
+                            <input accept="image/jpeg,image/png,image/webp" name="file" required type="file" />
+                          </label>
+                          <label className="workflow-form__full">
+                            نص بديل
+                            <input maxLength={120} name="altText" />
+                          </label>
+                          <button className="button button--small" disabled={busy} type="submit">رفع صورة</button>
+                        </form>
+
+                        {images.length === 0 ? (
+                          <p className="workspace-empty">لا توجد صور بعد.</p>
+                        ) : (
+                          <div className="catalog-image-grid">
+                            {images.map((image) => (
+                              <article className="catalog-image-card" key={image.id}>
+                                <img alt={image.altText ?? product.name} src={image.publicUrl} />
+                                <div className="workflow-actions">
+                                  <button
+                                    className="button button--secondary button--small"
+                                    disabled={busy || image.isPrimary}
+                                    onClick={() => void setPrimaryProductImage(product, image.id)}
+                                    type="button"
+                                  >
+                                    {image.isPrimary ? 'الصورة الرئيسية' : 'تعيين رئيسية'}
+                                  </button>
+                                  <button
+                                    className="plain-button plain-button--danger"
+                                    disabled={busy}
+                                    onClick={() => void deleteProductImage(product, image.id)}
+                                    type="button"
+                                  >حذف</button>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        )}
+
+                        {product.lifecycle === 'DRAFT' ? (
+                          <div className="catalog-draft-editor">
+                            <h4>تعديل المسودة</h4>
+                            <form
+                              className="workflow-form workflow-form--compact"
+                              onSubmit={(event) => updateCatalogDraft(event, product)}
+                            >
+                              <label>الاسم<input defaultValue={product.name} name="name" required minLength={2} /></label>
+                              <label>
+                                النوع
+                                <select defaultValue={product.furnitureType} name="furnitureType">
+                                  <option value="SOFA">كنبة</option><option value="BED">سرير</option>
+                                  <option value="DINING_TABLE">طاولة طعام</option><option value="WARDROBE">دولاب</option>
+                                  <option value="TV_UNIT">وحدة تلفاز</option><option value="SHELF">مكتبة أو رف</option>
+                                  <option value="DESK">مكتب</option><option value="CHAIR">كرسي</option><option value="OTHER">أخرى</option>
+                                </select>
+                              </label>
+                              <label>
+                                السعر الابتدائي (ر.س)
+                                <input defaultValue={(product.startingAmountMinor / 100).toFixed(2)} min="0" name="startingPrice" required step="0.01" type="number" />
+                              </label>
+                              <label className="workflow-form__full">الوصف العربي<textarea defaultValue={product.description} name="description" required minLength={10} rows={3} /></label>
+                              <label className="workflow-form__full">معلومات التنفيذ<textarea defaultValue={product.productionInformation} name="productionInformation" rows={2} /></label>
+                              <div className="workflow-actions">
+                                <button className="button button--small" disabled={busy} type="submit">حفظ التعديل</button>
+                                <button className="button button--secondary button--small" disabled={busy} onClick={() => void publishCatalogDraft(product)} type="button">نشر التصميم</button>
+                              </div>
+                            </form>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </section>
 
-        <section className="workspace-panel" aria-labelledby="manager-requests-title">
+        <section
+          aria-labelledby="manager-requests-title"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'requests'}
+          id="manager-panel-requests"
+          role="tabpanel"
+          tabIndex={0}
+        >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">صندوق الطلبات</p>
@@ -824,8 +944,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
 
         {orderDetail ? (
           <section
-            className="workspace-panel workspace-panel--full"
             aria-labelledby="manager-order-detail-title"
+            className="workspace-panel workspace-panel--full"
+            hidden={activeTab !== 'orders'}
+            role="region"
           >
             <div className="workspace-panel__heading">
               <div>
@@ -1019,7 +1141,14 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           </section>
         ) : null}
 
-        <section className="workspace-panel" aria-labelledby="manager-messages-title">
+        <section
+          aria-labelledby="manager-messages-title"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'messages'}
+          id="manager-panel-messages"
+          role="tabpanel"
+          tabIndex={0}
+        >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">التواصل</p>
@@ -1055,7 +1184,14 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           )}
         </section>
 
-        <section className="workspace-panel" aria-labelledby="manager-notifications-title">
+        <section
+          aria-labelledby="manager-notifications-title"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'notifications'}
+          id="manager-panel-notifications"
+          role="tabpanel"
+          tabIndex={0}
+        >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">المستجدات</p>

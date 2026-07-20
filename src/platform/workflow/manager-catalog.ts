@@ -34,6 +34,11 @@ const updateDraftSchema = productDraftSchema.extend({
   productId: z.uuid(),
 });
 
+const productLifecycleActionSchema = z.object({
+  expectedVersion: z.number().int().min(1),
+  productId: z.uuid(),
+});
+
 type CatalogProductRow = QueryResultRow & {
   content_json: unknown;
   furniture_type: string;
@@ -282,6 +287,152 @@ export class ManagerCatalogService {
     });
     return productFromRow(row);
   }
+  async archivePublished(
+    transaction: ActorScopedTransaction,
+    input: Readonly<{
+      expectedVersion: number;
+      productId: string;
+    }>,
+  ): Promise<ManagerCatalogProduct> {
+    const principalId = managerPrincipal(transaction);
+    const parsed = productLifecycleActionSchema.parse(input);
+
+    const current = await transaction.query<CatalogProductRow>(
+      `select p.id, p.furniture_type, p.lifecycle, p.starting_amount_minor,
+              p.production_information, p.record_version,
+              coalesce(t.content_json, '{}'::jsonb) as content_json
+       from catalog.products p
+       left join lateral (
+         select tr.content_json
+         from cms.translation_revisions tr
+         where tr.resource_id = p.localized_resource_id and tr.locale = 'ar'
+         order by tr.revision_number desc
+         limit 1
+       ) t on true
+       where p.id = $1
+       for update`,
+      [parsed.productId],
+    );
+
+    const product = current.rows[0];
+    if (!product) throw new Error('RESOURCE_NOT_FOUND');
+    if (product.lifecycle !== 'PUBLISHED') {
+      throw new Error('CATALOG_PRODUCT_NOT_PUBLISHED');
+    }
+    if (product.record_version !== parsed.expectedVersion) {
+      throw new Error('VERSION_CONFLICT');
+    }
+
+    const archived = await transaction.query<CatalogProductRow>(
+      `update catalog.products
+       set lifecycle = 'ARCHIVED',
+           updated_by_principal_id = $2,
+           updated_at = clock_timestamp(),
+           record_version = record_version + 1
+       where id = $1
+         and lifecycle = 'PUBLISHED'
+         and record_version = $3
+       returning id, furniture_type, lifecycle, starting_amount_minor,
+                 production_information, record_version, $4::jsonb as content_json`,
+      [
+        parsed.productId,
+        principalId,
+        parsed.expectedVersion,
+        JSON.stringify(product.content_json),
+      ],
+    );
+
+    const row = archived.rows[0];
+    if (!row) throw new Error('VERSION_CONFLICT');
+
+    await audit.record(transaction, {
+      correlationId: createCorrelationId(),
+      eventType: 'CATALOG_PRODUCT_ARCHIVED',
+      occurredAt: now(),
+      operation: 'ARCHIVE_CATALOG_PRODUCT',
+      outcome: 'SUCCEEDED',
+      stateAfter: 'ARCHIVED',
+      stateBefore: 'PUBLISHED',
+      targetId: parsed.productId,
+      targetType: 'CatalogProduct',
+    });
+
+    return productFromRow(row);
+  }
+
+  async restoreArchived(
+    transaction: ActorScopedTransaction,
+    input: Readonly<{
+      expectedVersion: number;
+      productId: string;
+    }>,
+  ): Promise<ManagerCatalogProduct> {
+    const principalId = managerPrincipal(transaction);
+    const parsed = productLifecycleActionSchema.parse(input);
+
+    const current = await transaction.query<CatalogProductRow>(
+      `select p.id, p.furniture_type, p.lifecycle, p.starting_amount_minor,
+              p.production_information, p.record_version,
+              coalesce(t.content_json, '{}'::jsonb) as content_json
+       from catalog.products p
+       left join lateral (
+         select tr.content_json
+         from cms.translation_revisions tr
+         where tr.resource_id = p.localized_resource_id and tr.locale = 'ar'
+         order by tr.revision_number desc
+         limit 1
+       ) t on true
+       where p.id = $1
+       for update`,
+      [parsed.productId],
+    );
+
+    const product = current.rows[0];
+    if (!product) throw new Error('RESOURCE_NOT_FOUND');
+    if (product.lifecycle !== 'ARCHIVED') {
+      throw new Error('CATALOG_PRODUCT_NOT_ARCHIVED');
+    }
+    if (product.record_version !== parsed.expectedVersion) {
+      throw new Error('VERSION_CONFLICT');
+    }
+
+    const restored = await transaction.query<CatalogProductRow>(
+      `update catalog.products
+       set lifecycle = 'PUBLISHED',
+           updated_by_principal_id = $2,
+           updated_at = clock_timestamp(),
+           record_version = record_version + 1
+       where id = $1
+         and lifecycle = 'ARCHIVED'
+         and record_version = $3
+       returning id, furniture_type, lifecycle, starting_amount_minor,
+                 production_information, record_version, $4::jsonb as content_json`,
+      [
+        parsed.productId,
+        principalId,
+        parsed.expectedVersion,
+        JSON.stringify(product.content_json),
+      ],
+    );
+
+    const row = restored.rows[0];
+    if (!row) throw new Error('VERSION_CONFLICT');
+
+    await audit.record(transaction, {
+      correlationId: createCorrelationId(),
+      eventType: 'CATALOG_PRODUCT_RESTORED',
+      occurredAt: now(),
+      operation: 'RESTORE_CATALOG_PRODUCT',
+      outcome: 'SUCCEEDED',
+      stateAfter: 'PUBLISHED',
+      stateBefore: 'ARCHIVED',
+      targetId: parsed.productId,
+      targetType: 'CatalogProduct',
+    });
+
+    return productFromRow(row);
+  }
+
   async updateDraft(
     transaction: ActorScopedTransaction,
     input: Readonly<{
