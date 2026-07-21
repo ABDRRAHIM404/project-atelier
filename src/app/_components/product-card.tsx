@@ -33,6 +33,9 @@ export function ProductCard({ product }: ProductCardProps) {
             عرض التفاصيل
           </Link>
         </div>
+        <Link className="button button--small product-card__customize" href={`/workspace?productId=${product.id}`}>
+          خصص هذا التصميم
+        </Link>
       </div>
     </article>
   );

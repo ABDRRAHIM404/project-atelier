@@ -1,6 +1,15 @@
 import { SignIn } from '@clerk/nextjs';
 
-export default function SignInPage() {
+type SignInPageProps = Readonly<{
+  searchParams: Promise<Readonly<Record<string, string | string[] | undefined>>>;
+}>;
+
+export default async function SignInPage({ searchParams }: SignInPageProps) {
+  const parameters = await searchParams;
+  const requestedRedirect =
+    typeof parameters.redirect_url === 'string' ? parameters.redirect_url : '/workspace';
+  const safeRedirect = requestedRedirect.startsWith('/') ? requestedRedirect : '/workspace';
+
   return (
     <main
       id="main-content"
@@ -11,7 +20,11 @@ export default function SignInPage() {
         padding: '2rem',
       }}
     >
-      <SignIn path="/sign-in" routing="path" />
+      <SignIn
+        fallbackRedirectUrl={safeRedirect}
+        path="/sign-in"
+        routing="path"
+      />
     </main>
   );
 }

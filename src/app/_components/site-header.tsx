@@ -2,9 +2,18 @@ import { Show, SignInButton, UserButton } from '@clerk/nextjs';
 import Image from 'next/image';
 import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
+import { headers } from 'next/headers';
+
+import { resolveWorkflowActor, workflowRole } from '../../platform/workflow';
 
 export async function SiteHeader() {
   const translate = await getTranslations('Storefront.navigation');
+  const requestHeaders = await headers();
+  const request = new Request('http://project-atelier.local/', { headers: requestHeaders });
+  const actor = await resolveWorkflowActor(request);
+  const role = actor ? workflowRole(actor) : undefined;
+  const dashboardHref = role === 'MANAGER' ? '/manager' : '/workspace';
+  const dashboardLabel = role === 'MANAGER' ? 'لوحة المدير' : 'مساحتي';
 
   return (
     <header className="site-header">
@@ -23,7 +32,7 @@ export async function SiteHeader() {
         <nav className="primary-navigation" aria-label={translate('label')}>
           <Link href="/catalog">{translate('catalog')}</Link>
           <Link href="/how-it-works">{translate('howItWorks')}</Link>
-          <Link href="/workspace">مساحتي</Link>
+          <Link href={dashboardHref}>{dashboardLabel}</Link>
         </nav>
 
         <div className="site-header__actions">
@@ -49,9 +58,9 @@ export async function SiteHeader() {
             </SignInButton>
           </Show>
 
-          <Link className="button button--small site-header__start" href="/workspace">
-            <span className="site-header__label--desktop">ابدأ مشروعك</span>
-            <span className="site-header__label--mobile">ابدأ</span>
+          <Link className="button button--small site-header__start" href={dashboardHref}>
+            <span className="site-header__label--desktop">{role === 'MANAGER' ? 'لوحة المدير' : 'ابدأ مشروعك'}</span>
+            <span className="site-header__label--mobile">{role === 'MANAGER' ? 'الإدارة' : 'ابدأ'}</span>
           </Link>
         </div>
       </div>

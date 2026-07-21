@@ -58,7 +58,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
             </div>
             <div className="product-detail__actions">
               <Link className="button" href={`/workspace?productId=${product.id}`}>
-                {translate('startAction')}
+                خصص هذا التصميم
               </Link>
               <Link className="button button--secondary" href="/catalog">
                 {translate('backAction')}
