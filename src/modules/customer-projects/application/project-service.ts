@@ -297,6 +297,81 @@ export class CustomerProjectService {
     );
   }
 
+  async createDirectRequest(
+    transaction: ActorScopedTransaction,
+    input: Readonly<{
+      customerNotes?: string | undefined;
+      dimensions?: Record<string, number | string> | undefined;
+      productId: string;
+      selections?: Record<string, string | string[]> | undefined;
+    }>,
+  ): Promise<Readonly<{ requestId: string }>> {
+    const productNameResult = await transaction.query<QueryResultRow & { name: string }>(
+      `select coalesce(t.content_json ->> 'name', 'تصميم مخصص') as name
+       from catalog.products p
+       left join catalog.product_translations t
+         on t.product_id = p.id and t.locale = 'ar-SA'
+       where p.id = $1 and p.lifecycle = 'PUBLISHED'`,
+      [input.productId],
+    );
+    const productName = productNameResult.rows[0]?.name;
+    if (!productName) throw new Error('PRODUCT_NOT_AVAILABLE');
+
+    const project = await this.createProject(transaction, {
+      customerNotes: input.customerNotes,
+      projectName: `طلب ${productName}`.slice(0, 120),
+    });
+    await this.addItem(transaction, {
+      customerNotes: input.customerNotes,
+      dimensions: input.dimensions,
+      productId: input.productId,
+      projectId: project.id,
+      selections: input.selections,
+    });
+    return this.submitProject(transaction, project.id);
+  }
+
+  async listCustomerRequests(
+    transaction: ActorScopedTransaction,
+  ): Promise<readonly SubmittedRequestSummary[]> {
+    const actor = customerActor(transaction);
+    const result = await transaction.query<
+      QueryResultRow & {
+        customer_id: string;
+        id: string;
+        item_count: number;
+        project_id: string;
+        project_name_snapshot: string;
+        state: string;
+        submitted_at: Date;
+      }
+    >(
+      `select r.id, r.source_project_id as project_id, r.customer_id, r.state,
+              r.project_name_snapshot, r.submitted_at,
+              count(i.id)::integer as item_count
+       from projects.submitted_requests r
+       left join projects.submitted_request_items i on i.request_id = r.id
+       where r.customer_id = $1
+       group by r.id
+       order by r.submitted_at desc`,
+      [actor.customerId],
+    );
+    return Object.freeze(
+      result.rows.map((row) =>
+        Object.freeze({
+          customerId: row.customer_id,
+          customerLabel: 'العميل',
+          id: row.id,
+          itemCount: row.item_count,
+          projectId: row.project_id,
+          projectName: row.project_name_snapshot.replace(/^طلب\s+/u, ''),
+          state: row.state,
+          submittedAt: row.submitted_at.toISOString(),
+        }),
+      ),
+    );
+  }
+
   async getManagerRequest(
     transaction: ActorScopedTransaction,
     requestId: string,

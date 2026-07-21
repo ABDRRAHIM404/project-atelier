@@ -50,6 +50,7 @@ export function formatDate(value: string): string {
 
 export const stateLabels: Readonly<Record<string, string>> = Object.freeze({
   ACCEPTED: 'مقبول',
+  ARCHIVED: 'مؤرشف',
   AWAITING_PAYMENT: 'بانتظار التحويل',
   AWAITING_SUBMISSION: 'بانتظار الإثبات',
   COMPLETED: 'مكتمل',
@@ -59,6 +60,7 @@ export const stateLabels: Readonly<Record<string, string>> = Object.freeze({
   NOT_STARTED: 'لم يبدأ',
   PAYMENT_UNDER_REVIEW: 'مراجعة التحويل',
   PAYMENT_VERIFIED: 'تم تأكيد التحويل',
+  PUBLISHED: 'منشور',
   QUALITY_INSPECTION: 'فحص الجودة',
   QUOTED: 'تم إرسال عرض السعر',
   READY: 'جاهز',
@@ -67,6 +69,7 @@ export const stateLabels: Readonly<Record<string, string>> = Object.freeze({
   SENT: 'مرسل',
   SUBMITTED: 'مرسل للمراجعة',
   UNDER_REVIEW: 'قيد المراجعة',
+  DECLINED: 'مرفوض',
   VERIFIED: 'مؤكد',
   WAITING_FOR_CUSTOMER_INFORMATION: 'بانتظار معلومات العميل',
   WAITING_FOR_PRODUCTION: 'بانتظار الإنتاج',

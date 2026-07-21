@@ -16,12 +16,12 @@ type Product = Readonly<{
   startingAmountMinor?: number;
 }>;
 
-type Project = Readonly<{
-  createdAt: string;
+type RequestSummary = Readonly<{
   id: string;
   itemCount: number;
-  name: string;
+  projectName: string;
   state: string;
+  submittedAt: string;
 }>;
 
 type Quotation = Readonly<{
@@ -51,6 +51,7 @@ type OrderDetail = Order &
   Readonly<{
     fulfilmentDetails: Record<string, unknown>;
     fulfilmentDetailsConfirmedAt?: string | undefined;
+    terms: Record<string, unknown>;
     items: readonly Readonly<{
       id: string;
       itemSnapshot: Record<string, unknown>;
@@ -91,7 +92,7 @@ type Message = Readonly<{
   sentAt: string;
 }>;
 
-type CustomerTab = 'projects' | 'quotations' | 'orders' | 'messages' | 'notifications';
+type CustomerTab = 'requests' | 'quotations' | 'orders' | 'messages' | 'notifications';
 
 type CustomerDashboardProps = Readonly<{
   demoEnabled: boolean;
@@ -116,7 +117,7 @@ function productName(itemSnapshot: Record<string, unknown>): string {
 }
 
 export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDashboardProps) {
-  const [projects, setProjects] = useState<readonly Project[]>([]);
+  const [requests, setRequests] = useState<readonly RequestSummary[]>([]);
   const [products, setProducts] = useState<readonly Product[]>([]);
   const [quotations, setQuotations] = useState<readonly Quotation[]>([]);
   const [orders, setOrders] = useState<readonly Order[]>([]);
@@ -126,11 +127,9 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [activeTab, setActiveTab] = useState<CustomerTab>('projects');
-  const [managedProjectId, setManagedProjectId] = useState<string>();
+  const [activeTab, setActiveTab] = useState<CustomerTab>('requests');
   const [productSearch, setProductSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState(initialProductId ?? '');
-  const createProjectPanelRef = useRef<HTMLDetailsElement>(null);
   const initialTabChosen = useRef(false);
   const initialProductHandled = useRef(false);
 
@@ -145,21 +144,21 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       }
       const [
         catalog,
-        projectResult,
+        requestResult,
         quotationResult,
         orderResult,
         notificationResult,
         messageResult,
       ] = await Promise.all([
         apiRequest<{ products: readonly Product[] }>('/api/v1/catalog'),
-        apiRequest<{ projects: readonly Project[] }>('/api/v1/projects'),
+        apiRequest<{ requests: readonly RequestSummary[] }>('/api/v1/requests'),
         apiRequest<{ quotations: readonly Quotation[] }>('/api/v1/quotations'),
         apiRequest<{ orders: readonly Order[] }>('/api/v1/orders'),
         apiRequest<{ notifications: readonly Notification[] }>('/api/v1/notifications'),
         apiRequest<{ messages: readonly Message[] }>('/api/v1/messages'),
       ]);
       setProducts(catalog.products);
-      setProjects(projectResult.projects);
+      setRequests(requestResult.requests);
       setQuotations(quotationResult.quotations);
       setOrders(orderResult.orders);
       setNotifications(notificationResult.notifications);
@@ -167,14 +166,8 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       if (initialProductId && !initialProductHandled.current) {
         initialProductHandled.current = true;
         initialTabChosen.current = true;
-        setActiveTab('projects');
+        setActiveTab('requests');
         setSelectedProductId(initialProductId);
-        const draftProject = projectResult.projects.find((project) => project.state === 'DRAFT');
-        if (draftProject) {
-          setManagedProjectId(draftProject.id);
-        } else {
-          window.setTimeout(() => createProjectPanelRef.current?.setAttribute('open', ''), 0);
-        }
       } else if (!initialTabChosen.current) {
         initialTabChosen.current = true;
         setActiveTab(
@@ -182,7 +175,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
             ? 'quotations'
             : orderResult.orders.length > 0
               ? 'orders'
-              : 'projects',
+              : 'requests',
         );
       }
     } catch (caught) {
@@ -194,7 +187,6 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     const timer = window.setTimeout(() => void refresh(), 0);
     return () => window.clearTimeout(timer);
   }, [refresh]);
-
 
   useEffect(() => {
     if (!notice) return;
@@ -217,26 +209,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     }
   }
 
-  async function createProject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    await perform(async () => {
-      const created = await apiRequest<Project>('/api/v1/projects', {
-        body: JSON.stringify({
-          customerNotes: formText(form, 'customerNotes'),
-          projectName: formText(form, 'projectName'),
-        }),
-        method: 'POST',
-      });
-      setManagedProjectId(created.id);
-      setActiveTab('projects');
-      formElement.reset();
-      createProjectPanelRef.current?.removeAttribute('open');
-    }, selectedProductId ? 'تم إنشاء المشروع. أكمل تخصيص التصميم المختار.' : 'تم إنشاء مسودة المشروع.');
-  }
-
-  async function addItem(event: FormEvent<HTMLFormElement>, projectId: string) {
+  async function submitDirectRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
@@ -251,11 +224,11 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         .filter(([, value]) => value.length > 0),
     );
     await perform(async () => {
-      await apiRequest(`/api/v1/projects/${projectId}/items`, {
+      await apiRequest('/api/v1/requests', {
         body: JSON.stringify({
           customerNotes: formText(form, 'customerNotes'),
           dimensions,
-          productId: selectedProductId || formText(form, 'productId'),
+          productId: selectedProductId,
           selections,
         }),
         method: 'POST',
@@ -263,19 +236,24 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       formElement.reset();
       setSelectedProductId('');
       setProductSearch('');
-    }, 'تمت إضافة التصميم إلى المشروع.');
-  }
-
-  async function submitProject(projectId: string) {
-    await perform(async () => {
-      await apiRequest(`/api/v1/projects/${projectId}/submit`, { method: 'POST' });
-    }, 'أُرسل المشروع إلى المدير للمراجعة.');
+    }, 'تم إرسال طلب التصميم إلى المدير.');
   }
 
   async function acceptQuotation(revisionId: string) {
     await perform(async () => {
       await apiRequest(`/api/v1/quotation-revisions/${revisionId}/accept`, { method: 'POST' });
     }, 'تم اعتماد عرض السعر وإنشاء الطلب.');
+  }
+
+  async function declineQuotation(event: FormEvent<HTMLFormElement>, revisionId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await perform(async () => {
+      await apiRequest(`/api/v1/quotation-revisions/${revisionId}/decline`, {
+        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        method: 'POST',
+      });
+    }, 'تم رفض عرض السعر وإبلاغ المدير.');
   }
 
   async function openOrder(orderId: string) {
@@ -314,19 +292,18 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
 
   async function submitPayment(event: FormEvent<HTMLFormElement>, orderId: string) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     await perform(async () => {
-      await apiRequest(`/api/v1/orders/${orderId}/payment-submissions`, {
-        body: JSON.stringify({
-          declaredReference: formText(form, 'declaredReference'),
-          proofDisplayFilename: formText(form, 'proofDisplayFilename'),
-          proofMediaType: formText(form, 'proofMediaType'),
-          proofObjectKey: formText(form, 'proofObjectKey'),
-        }),
+      const response = await fetch(`/api/v1/orders/${orderId}/payment-submissions`, {
+        body: form,
         method: 'POST',
       });
+      const payload = (await response.json().catch(() => ({}))) as { detail?: string };
+      if (!response.ok) throw new Error(payload.detail ?? 'تعذر رفع إيصال التحويل.');
+      formElement.reset();
       await openOrder(orderId);
-    }, 'تم إرسال إثبات التحويل للمراجعة اليدوية.');
+    }, 'تم إرسال إيصال التحويل للمراجعة.');
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -346,7 +323,9 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
   }
 
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
-  const actionableQuotationCount = quotations.filter((quotation) => quotation.state === 'SENT').length;
+  const actionableQuotationCount = quotations.filter(
+    (quotation) => quotation.state === 'SENT',
+  ).length;
   const selectedProduct = products.find((product) => product.id === selectedProductId);
   const normalizedProductSearch = productSearch.trim().toLocaleLowerCase('ar');
   const filteredProducts = products
@@ -361,6 +340,11 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
 
   return (
     <main className="workspace section-shell" id="main-content" tabIndex={-1}>
+      {busy ? (
+        <div className="global-action-progress" role="status">
+          جاري تنفيذ العملية...
+        </div>
+      ) : null}
       <header className="workspace__hero">
         <div>
           <p className="eyebrow">مساحة العميل</p>
@@ -396,7 +380,9 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                 />
               </>
             ) : (
-              <span className="catalog-handoff__placeholder" aria-hidden="true">تصميم</span>
+              <span className="catalog-handoff__placeholder" aria-hidden="true">
+                تصميم
+              </span>
             )}
             <div>
               <small>اخترته من المعرض</small>
@@ -418,232 +404,211 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       ) : null}
 
       <nav className="customer-tabs" aria-label="أقسام مساحة العميل" role="tablist">
-        <button aria-controls="customer-panel-projects" aria-selected={activeTab === 'projects'} className={`customer-tab${activeTab === 'projects' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('projects')} role="tab" type="button">
-          المشاريع <span className="customer-tab__count">{projects.length}</span>
+        <button
+          aria-controls="customer-panel-requests"
+          aria-selected={activeTab === 'requests'}
+          className={`customer-tab${activeTab === 'requests' ? ' customer-tab--active' : ''}`}
+          onClick={() => setActiveTab('requests')}
+          role="tab"
+          type="button"
+        >
+          الطلبات الجديدة <span className="customer-tab__count">{requests.length}</span>
         </button>
-        <button aria-controls="customer-panel-quotations" aria-selected={activeTab === 'quotations'} className={`customer-tab${activeTab === 'quotations' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('quotations')} role="tab" type="button">
+        <button
+          aria-controls="customer-panel-quotations"
+          aria-selected={activeTab === 'quotations'}
+          className={`customer-tab${activeTab === 'quotations' ? ' customer-tab--active' : ''}`}
+          onClick={() => setActiveTab('quotations')}
+          role="tab"
+          type="button"
+        >
           عروض السعر
-          {actionableQuotationCount > 0 ? <span className="customer-tab__badge">{badgeText(actionableQuotationCount)}</span> : null}
+          {actionableQuotationCount > 0 ? (
+            <span className="customer-tab__badge">{badgeText(actionableQuotationCount)}</span>
+          ) : null}
         </button>
-        <button aria-controls="customer-panel-orders" aria-selected={activeTab === 'orders'} className={`customer-tab${activeTab === 'orders' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('orders')} role="tab" type="button">
+        <button
+          aria-controls="customer-panel-orders"
+          aria-selected={activeTab === 'orders'}
+          className={`customer-tab${activeTab === 'orders' ? ' customer-tab--active' : ''}`}
+          onClick={() => setActiveTab('orders')}
+          role="tab"
+          type="button"
+        >
           الطلبات <span className="customer-tab__count">{orders.length}</span>
         </button>
-        <button aria-controls="customer-panel-messages" aria-selected={activeTab === 'messages'} className={`customer-tab${activeTab === 'messages' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('messages')} role="tab" type="button">
+        <button
+          aria-controls="customer-panel-messages"
+          aria-selected={activeTab === 'messages'}
+          className={`customer-tab${activeTab === 'messages' ? ' customer-tab--active' : ''}`}
+          onClick={() => setActiveTab('messages')}
+          role="tab"
+          type="button"
+        >
           الرسائل
         </button>
-        <button aria-controls="customer-panel-notifications" aria-selected={activeTab === 'notifications'} className={`customer-tab${activeTab === 'notifications' ? ' customer-tab--active' : ''}`} onClick={() => setActiveTab('notifications')} role="tab" type="button">
+        <button
+          aria-controls="customer-panel-notifications"
+          aria-selected={activeTab === 'notifications'}
+          className={`customer-tab${activeTab === 'notifications' ? ' customer-tab--active' : ''}`}
+          onClick={() => setActiveTab('notifications')}
+          role="tab"
+          type="button"
+        >
           الإشعارات
-          {unreadNotificationCount > 0 ? <span className="customer-tab__badge">{badgeText(unreadNotificationCount)}</span> : null}
+          {unreadNotificationCount > 0 ? (
+            <span className="customer-tab__badge">{badgeText(unreadNotificationCount)}</span>
+          ) : null}
         </button>
       </nav>
 
       <div className="workspace-grid customer-workspace-grid">
-        <section className="workspace-panel workspace-panel--full customer-create-project" aria-labelledby="new-project-title" hidden={activeTab !== 'projects'}>
+        <section
+          aria-labelledby="requests-title"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'requests'}
+          id="customer-panel-requests"
+          role="tabpanel"
+          tabIndex={0}
+        >
           <div className="workspace-panel__heading">
             <div>
-              <p className="eyebrow">ابدأ الطلب</p>
-              <h2 id="new-project-title">مشروع جديد</h2>
+              <p className="eyebrow">طلب تصميم</p>
+              <h2 id="requests-title">اختر تصميمًا وأرسله للمدير</h2>
             </div>
+            <span className="count-pill">{requests.length}</span>
           </div>
-          <details className="customer-create-panel" ref={createProjectPanelRef}>
-            <summary>إنشاء مشروع جديد</summary>
-            <form className="workflow-form customer-create-panel__form" onSubmit={createProject}>
-              <label>
-                اسم المشروع
-                <input name="projectName" placeholder="مثال: مجلس العائلة" required minLength={2} />
-              </label>
-              <label>
-                ملاحظات عامة
-                <textarea name="customerNotes" placeholder="صف المساحة أو الفكرة باختصار" rows={3} />
-              </label>
-              <button className="button" disabled={busy} type="submit">
-                إنشاء المسودة
-              </button>
-            </form>
-          </details>
-        </section>
 
-        <section aria-labelledby="projects-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'projects'} id="customer-panel-projects" role="tabpanel" tabIndex={0}>
-          <div className="workspace-panel__heading">
-            <div>
-              <p className="eyebrow">طلباتك</p>
-              <h2 id="projects-title">المشاريع</h2>
-            </div>
-            <span className="count-pill">{projects.length}</span>
-          </div>
-          {projects.length === 0 ? (
-            <div className="customer-empty-state">
-                <h3>ابدأ مشروعك الأول</h3>
-                <p>أنشئ مسودة، أضف التصميم والمقاسات، ثم أرسلها للمراجعة.</p>
-                <button className="button button--small" onClick={() => createProjectPanelRef.current?.setAttribute('open', '')} type="button">إنشاء مشروع</button>
+          <form className="workflow-form direct-request-form" onSubmit={submitDirectRequest}>
+            <div className="workflow-form__full product-picker">
+              <div className="product-picker__heading">
+                <div>
+                  <strong>التصميم</strong>
+                  <span>يمكنك تخصيصه أو إرساله كما هو.</span>
+                </div>
+                <Link className="text-link" href="/catalog">
+                  فتح المعرض
+                </Link>
               </div>
-          ) : (
-            <div className="workflow-stack">
-              {projects.map((project) => (
-                <article className="workflow-card" key={project.id}>
+              {selectedProduct ? (
+                <div className="product-picker__selected">
+                  {selectedProduct.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      alt={selectedProduct.imageAlt ?? selectedProduct.name}
+                      src={selectedProduct.imageUrl}
+                    />
+                  ) : (
+                    <span className="product-picker__placeholder">صورة</span>
+                  )}
+                  <div>
+                    <small>التصميم المختار</small>
+                    <strong>{selectedProduct.name}</strong>
+                  </div>
+                  <button
+                    className="plain-button"
+                    onClick={() => setSelectedProductId('')}
+                    type="button"
+                  >
+                    تغيير
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <label className="product-picker__search">
+                    البحث في التصاميم
+                    <input
+                      type="search"
+                      value={productSearch}
+                      onChange={(event) => setProductSearch(event.currentTarget.value)}
+                      placeholder="ابحث باسم التصميم..."
+                    />
+                  </label>
+                  <div className="product-picker__results">
+                    {filteredProducts.map((product) => (
+                      <button
+                        className="product-picker__option"
+                        key={product.id}
+                        onClick={() => setSelectedProductId(product.id)}
+                        type="button"
+                      >
+                        {product.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img alt={product.imageAlt ?? product.name} src={product.imageUrl} />
+                        ) : (
+                          <span className="product-picker__placeholder">صورة</span>
+                        )}
+                        <span>
+                          <strong>{product.name}</strong>
+                          <small>{product.categoryLabel ?? 'تصميم حسب الطلب'}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <label>
+              العرض (سم)
+              <input inputMode="decimal" name="width" />
+            </label>
+            <label>
+              الارتفاع (سم)
+              <input inputMode="decimal" name="height" />
+            </label>
+            <label>
+              العمق (سم)
+              <input inputMode="decimal" name="depth" />
+            </label>
+            <label>
+              الخامة
+              <input name="material" />
+            </label>
+            <label>
+              اللون
+              <input name="color" />
+            </label>
+            <label className="workflow-form__full">
+              ملاحظات التخصيص
+              <textarea name="customerNotes" rows={3} />
+            </label>
+            <button
+              className="button workflow-form__full"
+              disabled={busy || !selectedProductId}
+              type="submit"
+            >
+              {busy ? 'جاري إرسال الطلب...' : 'إرسال الطلب إلى المدير'}
+            </button>
+          </form>
+
+          <div className="workflow-stack direct-request-list">
+            <h3>الطلبات المرسلة</h3>
+            {requests.length === 0 ? (
+              <p className="workspace-empty">لم ترسل أي طلب بعد.</p>
+            ) : (
+              requests.map((request) => (
+                <article className="workflow-card" key={request.id}>
                   <div className="workflow-card__heading">
                     <div>
-                      <h3>{project.name}</h3>
-                      <span>
-                        {formatDate(project.createdAt)} · {project.itemCount} تصميم
-                      </span>
+                      <h3>{request.projectName}</h3>
+                      <span>{formatDate(request.submittedAt)}</span>
                     </div>
-                    <span className="status-badge">{stateLabel(project.state)}</span>
+                    <span className="status-badge">{stateLabel(request.state)}</span>
                   </div>
-                  {project.state === 'DRAFT' ? (
-                    <>
-                      <button
-                        aria-expanded={managedProjectId === project.id}
-                        className="button button--secondary button--small"
-                        onClick={() => {
-                          const opening = managedProjectId !== project.id;
-                          setManagedProjectId(opening ? project.id : undefined);
-                          if (opening && initialProductId) setSelectedProductId(initialProductId);
-                          setProductSearch('');
-                        }}
-                        type="button"
-                      >
-                        {managedProjectId === project.id ? 'إغلاق التعديل' : 'إضافة تصميم'}
-                      </button>
-                      {managedProjectId === project.id ? (
-                      <form
-                        className="workflow-form workflow-form--compact"
-                        onSubmit={(event) => addItem(event, project.id)}
-                      >
-                        <div className="workflow-form__full product-picker">
-                          <div className="product-picker__heading">
-                            <div>
-                              <strong>اختر التصميم</strong>
-                              <span>ابحث بالاسم ثم اضغط على التصميم المطلوب.</span>
-                            </div>
-                            <Link className="text-link" href="/catalog">فتح المعرض</Link>
-                          </div>
-
-                          {selectedProduct ? (
-                            <div className="product-picker__selected">
-                              {selectedProduct.imageUrl ? (
-                                <>
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    alt={selectedProduct.imageAlt ?? selectedProduct.name}
-                                    src={selectedProduct.imageUrl}
-                                  />
-                                </>
-                              ) : (
-                                <span className="product-picker__placeholder" aria-hidden="true">صورة</span>
-                              )}
-                              <div>
-                                <small>التصميم المختار</small>
-                                <strong>{selectedProduct.name}</strong>
-                                {selectedProduct.categoryLabel ? <span>{selectedProduct.categoryLabel}</span> : null}
-                              </div>
-                              <button
-                                className="plain-button"
-                                onClick={() => setSelectedProductId('')}
-                                type="button"
-                              >
-                                تغيير
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <label className="product-picker__search">
-                                <span>البحث في التصاميم</span>
-                                <input
-                                  autoComplete="off"
-                                  onChange={(event) => setProductSearch(event.currentTarget.value)}
-                                  placeholder="مثال: طاولة، كنبة، سرير..."
-                                  type="search"
-                                  value={productSearch}
-                                />
-                              </label>
-                              <div className="product-picker__results" role="listbox" aria-label="نتائج التصاميم">
-                                {filteredProducts.length === 0 ? (
-                                  <p className="workspace-empty">لا توجد تصاميم مطابقة.</p>
-                                ) : (
-                                  filteredProducts.map((product) => (
-                                    <button
-                                      aria-selected={selectedProductId === product.id}
-                                      className="product-picker__option"
-                                      key={product.id}
-                                      onClick={() => {
-                                        setSelectedProductId(product.id);
-                                        setProductSearch('');
-                                      }}
-                                      role="option"
-                                      type="button"
-                                    >
-                                      {product.imageUrl ? (
-                                        <>
-                                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                                          <img alt={product.imageAlt ?? product.name} src={product.imageUrl} />
-                                        </>
-                                      ) : (
-                                        <span className="product-picker__placeholder" aria-hidden="true">صورة</span>
-                                      )}
-                                      <span>
-                                        <strong>{product.name}</strong>
-                                        <small>{product.categoryLabel ?? 'تصميم حسب الطلب'}</small>
-                                      </span>
-                                    </button>
-                                  ))
-                                )}
-                              </div>
-                            </>
-                          )}
-                          <input name="productId" type="hidden" value={selectedProductId} />
-                          {!selectedProductId ? <p className="field-help">اختر تصميمًا للمتابعة.</p> : null}
-                        </div>
-                        <label>
-                          العرض (سم)
-                          <input inputMode="decimal" name="width" />
-                        </label>
-                        <label>
-                          الارتفاع (سم)
-                          <input inputMode="decimal" name="height" />
-                        </label>
-                        <label>
-                          العمق (سم)
-                          <input inputMode="decimal" name="depth" />
-                        </label>
-                        <label>
-                          الخامة
-                          <input name="material" placeholder="خشب، قماش..." />
-                        </label>
-                        <label>
-                          اللون
-                          <input name="color" placeholder="بيج، بني..." />
-                        </label>
-                        <label className="workflow-form__full">
-                          ملاحظات القطعة
-                          <textarea name="customerNotes" rows={2} />
-                        </label>
-                        <button
-                          className="button button--secondary button--small"
-                          disabled={busy || !selectedProductId}
-                          type="submit"
-                        >
-                          إضافة التصميم
-                        </button>
-                      </form>
-                      ) : null}
-                      <button
-                        className="button button--small"
-                        disabled={busy || project.itemCount === 0}
-                        onClick={() => submitProject(project.id)}
-                        type="button"
-                      >
-                        إرسال المشروع للمراجعة
-                      </button>
-                    </>
-                  ) : null}
                 </article>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </section>
 
-        <section aria-labelledby="quotes-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'quotations'} id="customer-panel-quotations" role="tabpanel" tabIndex={0}>
+        <section
+          aria-labelledby="quotes-title"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'quotations'}
+          id="customer-panel-quotations"
+          role="tabpanel"
+          tabIndex={0}
+        >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">التسعير</p>
@@ -653,7 +618,10 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </div>
           <div className="workflow-stack">
             {quotations.length === 0 ? (
-              <div className="customer-empty-state"><h3>لا يوجد عرض سعر بعد</h3><p>سيظهر عرض المدير هنا بعد مراجعة مشروعك.</p></div>
+              <div className="customer-empty-state">
+                <h3>لا يوجد عرض سعر بعد</h3>
+                <p>سيظهر عرض المدير هنا بعد مراجعة مشروعك.</p>
+              </div>
             ) : (
               quotations.map((quotation) => (
                 <article className="workflow-card" key={quotation.revisionId}>
@@ -666,14 +634,38 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   </div>
                   <p>{quotation.productionEstimateText}</p>
                   {quotation.state === 'SENT' ? (
-                    <button
-                      className="button button--small"
-                      disabled={busy}
-                      onClick={() => acceptQuotation(quotation.revisionId)}
-                      type="button"
-                    >
-                      اعتماد العرض
-                    </button>
+                    <div className="quotation-actions">
+                      <button
+                        className="button button--small"
+                        disabled={busy}
+                        onClick={() => acceptQuotation(quotation.revisionId)}
+                        type="button"
+                      >
+                        {busy ? 'جاري الاعتماد...' : 'قبول عرض السعر'}
+                      </button>
+                      <details className="quotation-decline">
+                        <summary>رفض عرض السعر</summary>
+                        <form onSubmit={(event) => declineQuotation(event, quotation.revisionId)}>
+                          <label>
+                            سبب الرفض
+                            <textarea
+                              name="reason"
+                              required
+                              minLength={2}
+                              rows={2}
+                              placeholder="السعر، المدة، أو التعديلات المطلوبة"
+                            />
+                          </label>
+                          <button
+                            className="button button--secondary button--small"
+                            disabled={busy}
+                            type="submit"
+                          >
+                            تأكيد الرفض
+                          </button>
+                        </form>
+                      </details>
+                    </div>
                   ) : null}
                 </article>
               ))
@@ -681,7 +673,14 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </div>
         </section>
 
-        <section aria-labelledby="orders-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'orders'} id="customer-panel-orders" role="tabpanel" tabIndex={0}>
+        <section
+          aria-labelledby="orders-title"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'orders'}
+          id="customer-panel-orders"
+          role="tabpanel"
+          tabIndex={0}
+        >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">المتابعة</p>
@@ -691,7 +690,10 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </div>
           <div className="workflow-stack">
             {orders.length === 0 ? (
-              <div className="customer-empty-state"><h3>لا توجد طلبات حالية</h3><p>بعد اعتماد عرض السعر، ستتابع الدفع والإنتاج والتسليم من هنا.</p></div>
+              <div className="customer-empty-state">
+                <h3>لا توجد طلبات حالية</h3>
+                <p>بعد اعتماد عرض السعر، ستتابع الدفع والإنتاج والتسليم من هنا.</p>
+              </div>
             ) : (
               orders.map((order) => (
                 <article className="workflow-card" key={order.id}>
@@ -813,44 +815,81 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'التوصيل' : 'الاستلام'}.
                 </div>
               )}
+              {orderDetail.terms.bankDetails &&
+              typeof orderDetail.terms.bankDetails === 'object' ? (
+                <section className="bank-details" aria-labelledby="bank-details-title">
+                  <h4 id="bank-details-title">بيانات التحويل البنكي</h4>
+                  <dl className="detail-list">
+                    <div>
+                      <dt>البنك</dt>
+                      <dd>
+                        {String(
+                          (orderDetail.terms.bankDetails as Record<string, unknown>).bankName ??
+                            '—',
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>اسم صاحب الحساب</dt>
+                      <dd>
+                        {String(
+                          (orderDetail.terms.bankDetails as Record<string, unknown>)
+                            .accountHolder ?? '—',
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>رقم الحساب البنكي (RIB)</dt>
+                      <dd dir="ltr">
+                        {String(
+                          (orderDetail.terms.bankDetails as Record<string, unknown>).rib ?? '—',
+                        )}
+                      </dd>
+                    </div>
+                    {(orderDetail.terms.bankDetails as Record<string, unknown>).iban ? (
+                      <div>
+                        <dt>IBAN</dt>
+                        <dd dir="ltr">
+                          {String((orderDetail.terms.bankDetails as Record<string, unknown>).iban)}
+                        </dd>
+                      </div>
+                    ) : null}
+                    <div>
+                      <dt>المبلغ</dt>
+                      <dd>{formatMoney(orderDetail.totalMinor, orderDetail.currencyCode)}</dd>
+                    </div>
+                    <div>
+                      <dt>مرجع الطلب</dt>
+                      <dd dir="ltr">{orderDetail.displayReference}</dd>
+                    </div>
+                  </dl>
+                </section>
+              ) : null}
               {orderDetail.fulfilmentDetailsConfirmedAt &&
               ['AWAITING_SUBMISSION', 'REJECTED'].includes(orderDetail.paymentState) ? (
                 <form
                   className="workflow-form"
                   onSubmit={(event) => submitPayment(event, orderDetail.id)}
                 >
-                  <h4>إرسال إثبات التحويل</h4>
+                  <h4>إرسال إيصال التحويل</h4>
                   <p className="field-help">
-                    ارفع الملف إلى التخزين الخاص عبر خطوة S3، ثم أدخل مفتاحه هنا. لا يبدأ الإنتاج
-                    قبل مراجعة المدير.
+                    ارفع صورة أو ملف PDF لإيصال التحويل، ثم أرسله للمراجعة.
                   </p>
-                  <label>
-                    اسم الملف
-                    <input name="proofDisplayFilename" placeholder="bank-transfer.pdf" required />
-                  </label>
-                  <label>
-                    نوع الملف
-                    <select name="proofMediaType">
-                      <option value="application/pdf">PDF</option>
-                      <option value="image/jpeg">JPG</option>
-                      <option value="image/png">PNG</option>
-                    </select>
-                  </label>
                   <label className="workflow-form__full">
-                    مفتاح الملف الخاص
+                    إيصال التحويل
                     <input
-                      name="proofObjectKey"
-                      placeholder="private/payment-proofs/..."
+                      accept="image/jpeg,image/png,application/pdf"
+                      name="receipt"
                       required
-                      minLength={3}
+                      type="file"
                     />
                   </label>
                   <label className="workflow-form__full">
-                    مرجع التحويل
+                    مرجع التحويل (اختياري)
                     <input name="declaredReference" />
                   </label>
                   <button className="button" disabled={busy} type="submit">
-                    إرسال للمراجعة
+                    {busy ? 'جاري رفع الإيصال...' : 'إرسال للمراجعة'}
                   </button>
                 </form>
               ) : null}
@@ -875,7 +914,14 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           ) : null}
         </section>
 
-        <section aria-labelledby="messages-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'messages'} id="customer-panel-messages" role="tabpanel" tabIndex={0}>
+        <section
+          aria-labelledby="messages-title"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'messages'}
+          id="customer-panel-messages"
+          role="tabpanel"
+          tabIndex={0}
+        >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">التواصل</p>
@@ -909,7 +955,14 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </form>
         </section>
 
-        <section aria-labelledby="notifications-title" className="workspace-panel workspace-panel--full" hidden={activeTab !== 'notifications'} id="customer-panel-notifications" role="tabpanel" tabIndex={0}>
+        <section
+          aria-labelledby="notifications-title"
+          className="workspace-panel workspace-panel--full"
+          hidden={activeTab !== 'notifications'}
+          id="customer-panel-notifications"
+          role="tabpanel"
+          tabIndex={0}
+        >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">آخر المستجدات</p>

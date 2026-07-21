@@ -455,6 +455,52 @@ export class QuotationService {
     return Object.freeze({ orderId, orderReference });
   }
 
+  async decline(
+    transaction: ActorScopedTransaction,
+    input: Readonly<{ reason: string; revisionId: string }>,
+  ): Promise<Readonly<{ quotationId: string }>> {
+    const actor = requireCustomer(transaction);
+    const reason = z.string().trim().min(2).max(2000).parse(input.reason);
+    const revision = await transaction.query<
+      QueryResultRow & { quotation_id: string; state: string }
+    >(
+      `select r.quotation_id, r.state
+       from quotes.quotation_revisions r
+       join quotes.quotations q on q.id = r.quotation_id
+       where r.id = $1 and q.customer_id = $2 and q.current_sent_revision_id = r.id
+       for update of q, r`,
+      [input.revisionId, actor.customerId],
+    );
+    const row = revision.rows[0];
+    if (!row || row.state !== 'SENT') throw new Error('QUOTATION_NOT_DECLINABLE');
+
+    await transaction.query(
+      `insert into quotes.quotation_responses (id, revision_id, customer_id, outcome, reason)
+       values ($1, $2, $3, 'DECLINED', $4)`,
+      [randomUUID(), input.revisionId, actor.customerId, reason],
+    );
+    await transaction.query(
+      `update quotes.quotation_revisions set state = 'DECLINED', updated_at = clock_timestamp(),
+              record_version = record_version + 1 where id = $1`,
+      [input.revisionId],
+    );
+    await transaction.query(
+      `update quotes.quotations set lifecycle = 'DECLINED', updated_at = clock_timestamp(),
+              record_version = record_version + 1 where id = $1`,
+      [row.quotation_id],
+    );
+    await transaction.query(
+      `insert into notifications.notifications
+         (recipient_principal_id, event_type, resource_type, resource_id, title_ar, body_ar, event_key)
+       select m.principal_id, 'QUOTATION_DECLINED', 'QUOTATION', $1,
+              'رفض العميل عرض السعر', $2, $3
+       from iam.managers m where m.is_active
+       on conflict (recipient_principal_id, event_key) do nothing`,
+      [row.quotation_id, reason, `quotation:${input.revisionId}:declined`],
+    );
+    return Object.freeze({ quotationId: row.quotation_id });
+  }
+
   async listCustomerQuotations(
     transaction: ActorScopedTransaction,
   ): Promise<readonly QuotationSummary[]> {

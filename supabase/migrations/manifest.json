@@ -84,7 +84,7 @@
       "riskClass": "C",
       "transactionSafe": true,
       "verification": "npm run test:postgres"
-        },
+    },
     {
       "backwardCompatibility": "Additive public product image support; existing catalog products remain readable",
       "checksumSha256": "ffcde0a51552fc8e468ba6a118bcdab446b8741f5e7bb8aa20cb8c652667278d",
@@ -103,6 +103,25 @@
       "riskClass": "C",
       "transactionSafe": true,
       "verification": "npm run test:postgres"
+    },
+    {
+      "backwardCompatibility": "Additive private payment receipt storage bucket; existing workflow remains compatible",
+      "checksumSha256": "1f37e239faa1c9b598068ae7e2b207bc203bf952054ad16df4947a46932be499",
+      "dataEffect": "Creates or updates one private Supabase Storage bucket without changing business rows",
+      "dependencies": [
+        "20260718000200"
+      ],
+      "expectedLock": "Storage bucket metadata row only",
+      "file": "20260721000100_payment_proofs_bucket.sql",
+      "id": "20260721000100",
+      "owners": [
+        "payments",
+        "files-and-media"
+      ],
+      "recovery": "Delete the payment-proofs bucket only after confirming it contains no required receipts",
+      "riskClass": "C",
+      "transactionSafe": true,
+      "verification": "npm run migrations:check"
     }
   ]
-} 
+}

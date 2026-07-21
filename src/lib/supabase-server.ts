@@ -26,6 +26,18 @@ export function getSupabaseBrowserClient() {
 
 export function productImageStoragePath(productId: string, file: File): string {
   const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-  const uuid = createHash('sha1').update(`${productId}:${file.name}:${Date.now()}`).digest('hex').slice(0, 12);
+  const uuid = createHash('sha1')
+    .update(`${productId}:${file.name}:${Date.now()}`)
+    .digest('hex')
+    .slice(0, 12);
   return `products/${productId}/${uuid}.${extension}`;
+}
+
+export function paymentProofStoragePath(orderId: string, file: File): string {
+  const extension = file.name.split('.').pop()?.toLowerCase() || 'pdf';
+  const uuid = createHash('sha1')
+    .update(`${orderId}:${file.name}:${Date.now()}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `orders/${orderId}/${uuid}.${extension}`;
 }

@@ -134,20 +134,27 @@ function badgeText(count: number): string {
 function configurationText(configuration: Record<string, unknown>): string {
   const dimensions = configuration.dimensions;
   const selections = configuration.selections;
+  const labels: Readonly<Record<string, string>> = Object.freeze({
+    color: 'اللون',
+    depth: 'العمق',
+    height: 'الارتفاع',
+    material: 'الخامة',
+    width: 'العرض',
+  });
   const parts: string[] = [];
-  if (dimensions && typeof dimensions === 'object') {
-    const values = Object.entries(dimensions as Record<string, unknown>)
-      .map(([key, value]) => `${key}: ${String(value)}`)
-      .join('، ');
-    if (values) parts.push(values);
+  if (dimensions && typeof dimensions === 'object' && !Array.isArray(dimensions)) {
+    for (const [key, value] of Object.entries(dimensions as Record<string, unknown>)) {
+      parts.push(`${labels[key] ?? key}: ${String(value)} سم`);
+    }
   }
-  if (selections && typeof selections === 'object') {
-    const values = Object.entries(selections as Record<string, unknown>)
-      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join('، ') : String(value)}`)
-      .join('، ');
-    if (values) parts.push(values);
+  if (selections && typeof selections === 'object' && !Array.isArray(selections)) {
+    for (const [key, value] of Object.entries(selections as Record<string, unknown>)) {
+      parts.push(
+        `${labels[key] ?? key}: ${Array.isArray(value) ? value.join('، ') : String(value)}`,
+      );
+    }
   }
-  return parts.join(' · ') || 'لا توجد خيارات إضافية';
+  return parts.join(' · ') || 'بدون تعديلات؛ يُنفذ التصميم كما هو.';
 }
 
 export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
@@ -166,6 +173,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [activeTab, setActiveTab] = useState<ManagerTab>('catalog');
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('ALL');
   const [managedProductId, setManagedProductId] = useState<string>();
+  const requestDetailRef = useRef<HTMLElement>(null);
   const initialTabChosen = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -220,12 +228,20 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(''), 4_000);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (!requestDetail) return;
+    const timer = window.setTimeout(() => {
+      requestDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      requestDetailRef.current?.focus({ preventScroll: true });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [requestDetail]);
 
   async function perform(action: () => Promise<void>, success: string) {
     setBusy(true);
@@ -327,10 +343,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }
 
   async function uploadProductImage(event: FormEvent<HTMLFormElement>, product: CatalogProduct) {
-  event.preventDefault();
+    event.preventDefault();
 
-  const formElement = event.currentTarget;
-  const form = new FormData(formElement);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const file = form.get('file');
     if (!(file instanceof File) || !file.size) throw new Error('اختر صورة أولاً.');
     const response = await fetch(`/api/v1/manager/catalog/products/${product.id}/images`, {
@@ -401,6 +417,13 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           productionEstimateText: formText(form, 'productionEstimateText'),
           termsSnapshot: {
             payment: 'تحويل بنكي كامل قبل بدء التنفيذ',
+            bankDetails: {
+              accountHolder: formText(form, 'accountHolder'),
+              bankName: formText(form, 'bankName'),
+              iban: formText(form, 'iban'),
+              rib: formText(form, 'rib'),
+              transferInstructions: formText(form, 'transferInstructions'),
+            },
           },
         }),
         method: 'POST',
@@ -519,6 +542,11 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
 
   return (
     <main className="workspace section-shell" id="main-content" tabIndex={-1}>
+      {busy ? (
+        <div className="global-action-progress" role="status">
+          جاري تنفيذ العملية...
+        </div>
+      ) : null}
       <header className="workspace__hero">
         <div>
           <p className="eyebrow">لوحة المدير</p>
@@ -564,7 +592,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           type="button"
         >
           الطلبات الجديدة
-          {requests.length > 0 ? <span className="manager-tab__badge">{badgeText(requests.length)}</span> : null}
+          {requests.length > 0 ? (
+            <span className="manager-tab__badge">{badgeText(requests.length)}</span>
+          ) : null}
         </button>
         <button
           aria-controls="manager-panel-orders"
@@ -576,7 +606,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           type="button"
         >
           الطلبات المعتمدة
-          {orders.length > 0 ? <span className="manager-tab__badge">{badgeText(orders.length)}</span> : null}
+          {orders.length > 0 ? (
+            <span className="manager-tab__badge">{badgeText(orders.length)}</span>
+          ) : null}
         </button>
         <button
           aria-controls="manager-panel-messages"
@@ -628,7 +660,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
 
           <details className="catalog-create-panel">
             <summary>إنشاء تصميم جديد</summary>
-            <form className="workflow-form catalog-create-panel__form" onSubmit={createCatalogDraft}>
+            <form
+              className="workflow-form catalog-create-panel__form"
+              onSubmit={createCatalogDraft}
+            >
               <label>
                 اسم التصميم
                 <input name="name" required minLength={2} maxLength={120} />
@@ -659,18 +694,22 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 معلومات التنفيذ
                 <textarea name="productionInformation" maxLength={1000} rows={2} />
               </label>
-              <button className="button" disabled={busy} type="submit">حفظ كمسودة</button>
+              <button className="button" disabled={busy} type="submit">
+                حفظ كمسودة
+              </button>
             </form>
           </details>
 
           <div className="catalog-toolbar">
             <div className="catalog-filters" aria-label="تصفية التصاميم">
-              {([
-                ['ALL', 'الكل'],
-                ['PUBLISHED', 'منشور'],
-                ['DRAFT', 'مسودة'],
-                ['ARCHIVED', 'مؤرشف'],
-              ] as const).map(([value, label]) => (
+              {(
+                [
+                  ['ALL', 'الكل'],
+                  ['PUBLISHED', 'منشور'],
+                  ['DRAFT', 'مسودة'],
+                  ['ARCHIVED', 'مؤرشف'],
+                ] as const
+              ).map(([value, label]) => (
                 <button
                   aria-pressed={catalogFilter === value}
                   className={`catalog-filter${catalogFilter === value ? ' catalog-filter--active' : ''}`}
@@ -696,9 +735,14 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                   <article className="catalog-product-card" key={product.id}>
                     <div className="catalog-product-card__image">
                       {primaryImage ? (
-                        <img alt={primaryImage.altText ?? product.name} src={primaryImage.publicUrl} />
+                        <img
+                          alt={primaryImage.altText ?? product.name}
+                          src={primaryImage.publicUrl}
+                        />
                       ) : (
-                        <div className="catalog-product-card__placeholder" aria-hidden="true">صورة</div>
+                        <div className="catalog-product-card__placeholder" aria-hidden="true">
+                          صورة
+                        </div>
                       )}
                     </div>
                     <div className="catalog-product-card__content">
@@ -711,7 +755,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                       </div>
                       <p>{product.description || 'لا يوجد وصف بعد.'}</p>
                       <div className="catalog-product-card__meta">
-                        <span>{images.length} {images.length === 1 ? 'صورة' : 'صور'}</span>
+                        <span>
+                          {images.length} {images.length === 1 ? 'صورة' : 'صور'}
+                        </span>
                         <span>الإصدار {product.recordVersion}</span>
                       </div>
                       <button
@@ -729,17 +775,26 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                         <h4>إدارة الصور</h4>
                         <form
                           className="workflow-form workflow-form--compact"
-                          onSubmit={(event) => void perform(() => uploadProductImage(event, product), 'تم رفع الصورة.')}
+                          onSubmit={(event) =>
+                            void perform(() => uploadProductImage(event, product), 'تم رفع الصورة.')
+                          }
                         >
                           <label className="workflow-form__full">
                             صورة المنتج
-                            <input accept="image/jpeg,image/png,image/webp" name="file" required type="file" />
+                            <input
+                              accept="image/jpeg,image/png,image/webp"
+                              name="file"
+                              required
+                              type="file"
+                            />
                           </label>
                           <label className="workflow-form__full">
                             نص بديل
                             <input maxLength={120} name="altText" />
                           </label>
-                          <button className="button button--small" disabled={busy} type="submit">رفع صورة</button>
+                          <button className="button button--small" disabled={busy} type="submit">
+                            رفع صورة
+                          </button>
                         </form>
 
                         {images.length === 0 ? (
@@ -763,7 +818,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                                     disabled={busy}
                                     onClick={() => void deleteProductImage(product, image.id)}
                                     type="button"
-                                  >حذف</button>
+                                  >
+                                    حذف
+                                  </button>
                                 </div>
                               </article>
                             ))}
@@ -777,25 +834,74 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                               className="workflow-form workflow-form--compact"
                               onSubmit={(event) => updateCatalogDraft(event, product)}
                             >
-                              <label>الاسم<input defaultValue={product.name} name="name" required minLength={2} /></label>
+                              <label>
+                                الاسم
+                                <input
+                                  defaultValue={product.name}
+                                  name="name"
+                                  required
+                                  minLength={2}
+                                />
+                              </label>
                               <label>
                                 النوع
                                 <select defaultValue={product.furnitureType} name="furnitureType">
-                                  <option value="SOFA">كنبة</option><option value="BED">سرير</option>
-                                  <option value="DINING_TABLE">طاولة طعام</option><option value="WARDROBE">دولاب</option>
-                                  <option value="TV_UNIT">وحدة تلفاز</option><option value="SHELF">مكتبة أو رف</option>
-                                  <option value="DESK">مكتب</option><option value="CHAIR">كرسي</option><option value="OTHER">أخرى</option>
+                                  <option value="SOFA">كنبة</option>
+                                  <option value="BED">سرير</option>
+                                  <option value="DINING_TABLE">طاولة طعام</option>
+                                  <option value="WARDROBE">دولاب</option>
+                                  <option value="TV_UNIT">وحدة تلفاز</option>
+                                  <option value="SHELF">مكتبة أو رف</option>
+                                  <option value="DESK">مكتب</option>
+                                  <option value="CHAIR">كرسي</option>
+                                  <option value="OTHER">أخرى</option>
                                 </select>
                               </label>
                               <label>
                                 السعر الابتدائي (ر.س)
-                                <input defaultValue={(product.startingAmountMinor / 100).toFixed(2)} min="0" name="startingPrice" required step="0.01" type="number" />
+                                <input
+                                  defaultValue={(product.startingAmountMinor / 100).toFixed(2)}
+                                  min="0"
+                                  name="startingPrice"
+                                  required
+                                  step="0.01"
+                                  type="number"
+                                />
                               </label>
-                              <label className="workflow-form__full">الوصف العربي<textarea defaultValue={product.description} name="description" required minLength={10} rows={3} /></label>
-                              <label className="workflow-form__full">معلومات التنفيذ<textarea defaultValue={product.productionInformation} name="productionInformation" rows={2} /></label>
+                              <label className="workflow-form__full">
+                                الوصف العربي
+                                <textarea
+                                  defaultValue={product.description}
+                                  name="description"
+                                  required
+                                  minLength={10}
+                                  rows={3}
+                                />
+                              </label>
+                              <label className="workflow-form__full">
+                                معلومات التنفيذ
+                                <textarea
+                                  defaultValue={product.productionInformation}
+                                  name="productionInformation"
+                                  rows={2}
+                                />
+                              </label>
                               <div className="workflow-actions">
-                                <button className="button button--small" disabled={busy} type="submit">حفظ التعديل</button>
-                                <button className="button button--secondary button--small" disabled={busy} onClick={() => void publishCatalogDraft(product)} type="button">نشر التصميم</button>
+                                <button
+                                  className="button button--small"
+                                  disabled={busy}
+                                  type="submit"
+                                >
+                                  حفظ التعديل
+                                </button>
+                                <button
+                                  className="button button--secondary button--small"
+                                  disabled={busy}
+                                  onClick={() => void publishCatalogDraft(product)}
+                                  type="button"
+                                >
+                                  نشر التصميم
+                                </button>
                               </div>
                             </form>
                           </div>
@@ -943,11 +1049,15 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           <section
             className="workspace-panel workspace-panel--full"
             aria-labelledby="request-detail-title"
+            ref={requestDetailRef}
+            tabIndex={-1}
           >
             <div className="workspace-panel__heading">
               <div>
                 <p className="eyebrow">مراجعة الطلب</p>
-                <h2 id="request-detail-title">{requestDetail.projectName}</h2>
+                <h2 id="request-detail-title">
+                  طلب {requestDetail.items[0]?.productName ?? 'تصميم مخصص'}
+                </h2>
               </div>
               <button
                 className="plain-button"
@@ -999,12 +1109,36 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                   minLength={2}
                 />
               </label>
+              <fieldset className="workflow-form__full bank-fields">
+                <legend>بيانات التحويل البنكي</legend>
+                <p className="field-help">ستظهر هذه البيانات للعميل بعد قبول عرض السعر.</p>
+                <label>
+                  اسم البنك
+                  <input name="bankName" required />
+                </label>
+                <label>
+                  اسم صاحب الحساب
+                  <input name="accountHolder" required />
+                </label>
+                <label>
+                  رقم الحساب البنكي (RIB)
+                  <input dir="ltr" name="rib" required />
+                </label>
+                <label>
+                  IBAN (اختياري)
+                  <input dir="ltr" name="iban" />
+                </label>
+                <label className="workflow-form__full">
+                  تعليمات التحويل (اختياري)
+                  <textarea name="transferInstructions" rows={2} />
+                </label>
+              </fieldset>
               <label className="workflow-form__full">
                 ملاحظات المدير
                 <textarea name="managerNotes" rows={3} />
               </label>
               <button className="button" disabled={busy} type="submit">
-                إرسال عرض السعر
+                {busy ? 'جاري إرسال عرض السعر...' : 'إرسال عرض السعر'}
               </button>
             </form>
           </section>
