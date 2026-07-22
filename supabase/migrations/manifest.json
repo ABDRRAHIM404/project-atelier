@@ -144,6 +144,27 @@
       "riskClass": "D",
       "transactionSafe": true,
       "verification": "npm run migrations:check && npm run typecheck"
+    },
+    {
+      "backwardCompatibility": "Forward fix for cancellation notifications and customer request activity; existing rows remain compatible",
+      "checksumSha256": "2b5fe25d7738a882d1e4af05ff5579dede25094511b2648f519858bec240cd54",
+      "dataEffect": "No business rows changed; expands notification event validation and permits customer-owned cancellation activity inserts",
+      "dependencies": [
+        "20260722000100"
+      ],
+      "expectedLock": "Brief metadata locks on notifications.notifications and projects.request_activity policies",
+      "file": "20260722000200_cancellation_and_notification_fixes.sql",
+      "id": "20260722000200",
+      "owners": [
+        "customer-projects",
+        "orders",
+        "notifications",
+        "audit-and-operations"
+      ],
+      "recovery": "Rollback the uncommitted transaction; use a reviewed forward-fix after commit",
+      "riskClass": "C",
+      "transactionSafe": true,
+      "verification": "npm run migrations:check && npm run typecheck && npm run lint && npm run build"
     }
   ]
 }

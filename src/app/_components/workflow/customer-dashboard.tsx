@@ -143,6 +143,10 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
   const [activeTab, setActiveTab] = useState<CustomerTab>('requests');
   const [productSearch, setProductSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState(initialProductId ?? '');
+  const [cancelTarget, setCancelTarget] = useState<{ id: string; kind: 'ORDER' | 'REQUEST'; title: string }>();
+  const [receiptFile, setReceiptFile] = useState<File>();
+  const [receiptDragging, setReceiptDragging] = useState(false);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
   const initialTabChosen = useRef(false);
   const initialProductHandled = useRef(false);
 
@@ -206,6 +210,12 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(''), 7_000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
+
   async function perform(action: () => Promise<void>, success: string) {
     setBusy(true);
     setError('');
@@ -262,7 +272,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     const form = new FormData(event.currentTarget);
     await perform(async () => {
       await apiRequest(`/api/v1/quotation-revisions/${revisionId}/decline`, {
-        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        body: JSON.stringify({ reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — ') }),
         method: 'POST',
       });
     }, 'تم رفض عرض السعر وإبلاغ المدير.');
@@ -302,6 +312,22 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     }, 'تم حفظ تفاصيل الاستلام. يمكنك الآن إرسال إثبات التحويل.');
   }
 
+  function chooseReceipt(file: File | undefined) {
+    if (!file) return;
+    const supported = ['image/jpeg', 'image/png', 'application/pdf'].includes(file.type);
+    if (!supported || file.size > 10 * 1024 * 1024) {
+      setError('اختر صورة JPG أو PNG أو ملف PDF بحجم لا يتجاوز 10 ميغابايت.');
+      return;
+    }
+    setError('');
+    setReceiptFile(file);
+    if (receiptInputRef.current) {
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      receiptInputRef.current.files = transfer.files;
+    }
+  }
+
   async function submitPayment(event: FormEvent<HTMLFormElement>, orderId: string) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -314,6 +340,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       const payload = (await response.json().catch(() => ({}))) as { detail?: string };
       if (!response.ok) throw new Error(payload.detail ?? 'تعذر رفع إيصال التحويل.');
       formElement.reset();
+      setReceiptFile(undefined);
       await openOrder(orderId);
     }, 'تم إرسال إيصال التحويل للمراجعة.');
   }
@@ -323,10 +350,11 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     const form = new FormData(event.currentTarget);
     await perform(async () => {
       await apiRequest(`/api/v1/orders/${orderId}/cancel`, {
-        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        body: JSON.stringify({ reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — ') }),
         method: 'POST',
       });
       setOrderDetail(undefined);
+      setCancelTarget(undefined);
     }, 'تم إلغاء الطلب وتسجيل السبب.');
   }
 
@@ -368,9 +396,10 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     const form = new FormData(event.currentTarget);
     await perform(async () => {
       await apiRequest(`/api/v1/requests/${requestId}/cancel`, {
-        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        body: JSON.stringify({ reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — ') }),
         method: 'POST',
       });
+      setCancelTarget(undefined);
     }, 'تم إلغاء الطلب ونقله إلى السجل.');
   }
 
@@ -378,6 +407,23 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     await perform(async () => {
       await apiRequest(`/api/v1/requests/${requestId}/archive`, { method: 'POST' });
     }, 'تم نقل الطلب إلى السجل.');
+  }
+
+  async function openNotifications() {
+    setActiveTab('notifications');
+    const unread = notifications.filter((notification) => !notification.read);
+    if (unread.length === 0) return;
+    setNotifications((current) => current.map((notification) => ({ ...notification, read: true })));
+    try {
+      await Promise.all(
+        unread.map((notification) =>
+          apiRequest(`/api/v1/notifications/${notification.id}/read`, { method: 'POST' }),
+        ),
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر تحديث الإشعارات.');
+      await refresh();
+    }
   }
 
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
@@ -434,12 +480,14 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       {demoEnabled ? <DemoRoleSwitch current="customer" /> : null}
       {error ? (
         <div className="toast toast--error" role="alert">
-          {error}
+          <span>{error}</span>
+          <button aria-label="إغلاق التنبيه" className="toast__close" onClick={() => setError('')} type="button">×</button>
         </div>
       ) : null}
       {notice ? (
         <div className="toast toast--success" role="status">
-          {notice}
+          <span>{notice}</span>
+          <button aria-label="إغلاق التنبيه" className="toast__close" onClick={() => setNotice('')} type="button">×</button>
         </div>
       ) : null}
 
@@ -523,7 +571,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           aria-controls="customer-panel-notifications"
           aria-selected={activeTab === 'notifications'}
           className={`customer-tab${activeTab === 'notifications' ? ' customer-tab--active' : ''}`}
-          onClick={() => setActiveTab('notifications')}
+          onClick={() => void openNotifications()}
           role="tab"
           type="button"
         >
@@ -674,13 +722,13 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   </div>
                   <p className="request-type-label">{request.requestType === 'CUSTOM_DESIGN' ? 'تصميم خاص' : 'منتج من الكتالوج'}</p>
                   {activeRequestStates.has(request.state) ? (
-                    <details className="danger-action">
-                      <summary>إلغاء الطلب</summary>
-                      <form onSubmit={(event) => cancelRequest(event, request.id)}>
-                        <label>سبب الإلغاء<textarea name="reason" required minLength={2} rows={2} /></label>
-                        <button className="button button--secondary button--small" disabled={busy} type="submit">تأكيد الإلغاء</button>
-                      </form>
-                    </details>
+                    <button
+                      className="plain-button plain-button--danger"
+                      onClick={() => setCancelTarget({ id: request.id, kind: 'REQUEST', title: request.projectName })}
+                      type="button"
+                    >
+                      إلغاء الطلب
+                    </button>
                   ) : null}
                   {['CANCELLED', 'REJECTED', 'COMPLETED'].includes(request.state) ? (
                     <button className="plain-button" disabled={busy} onClick={() => archiveRequest(request.id)} type="button">نقل إلى السجل</button>
@@ -817,13 +865,13 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                     عرض التفاصيل
                   </button>
                   {!['COMPLETED', 'CANCELLED'].includes(order.lifecycleState) ? (
-                    <details className="danger-action">
-                      <summary>طلب إلغاء</summary>
-                      <form onSubmit={(event) => cancelOrder(event, order.id)}>
-                        <label>سبب الإلغاء<textarea name="reason" required minLength={2} rows={2} /></label>
-                        <button className="button button--secondary button--small" disabled={busy} type="submit">تأكيد طلب الإلغاء</button>
-                      </form>
-                    </details>
+                    <button
+                      className="plain-button plain-button--danger"
+                      onClick={() => setCancelTarget({ id: order.id, kind: 'ORDER', title: order.displayReference })}
+                      type="button"
+                    >
+                      طلب إلغاء
+                    </button>
                   ) : null}
                 </article>
               ))
@@ -909,9 +957,8 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   </button>
                 </form>
               ) : (
-                <div className="toast toast--success" role="status">
-                  تم تأكيد تفاصيل{' '}
-                  {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'التوصيل' : 'الاستلام'}.
+                <div className="decision-box decision-box--success" role="status">
+                  تم تأكيد تفاصيل {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'التوصيل' : 'الاستلام'}.
                 </div>
               )}
               {orderDetail.terms.bankDetails &&
@@ -974,20 +1021,53 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   <p className="field-help">
                     ارفع صورة أو ملف PDF لإيصال التحويل، ثم أرسله للمراجعة.
                   </p>
-                  <label className="workflow-form__full">
-                    إيصال التحويل
+                  <div className="workflow-form__full">
                     <input
                       accept="image/jpeg,image/png,application/pdf"
+                      hidden
                       name="receipt"
+                      onChange={(event) => chooseReceipt(event.currentTarget.files?.[0])}
+                      ref={receiptInputRef}
                       required
                       type="file"
                     />
-                  </label>
+                    <section
+                      className={`receipt-uploader${receiptDragging ? ' receipt-uploader--dragging' : ''}`}
+                      onDragEnter={(event) => { event.preventDefault(); setReceiptDragging(true); }}
+                      onDragLeave={(event) => { event.preventDefault(); setReceiptDragging(false); }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setReceiptDragging(false);
+                        chooseReceipt(event.dataTransfer.files[0]);
+                      }}
+                    >
+                      <span className="receipt-uploader__icon" aria-hidden="true">↑</span>
+                      <div>
+                        <strong>رفع إيصال التحويل</strong>
+                        <p>اسحب الإيصال هنا أو اضغط لاختياره من جهازك.</p>
+                        <small>JPG، PNG، PDF · الحد الأقصى 10 ميغابايت</small>
+                      </div>
+                      <button className="button button--secondary button--small" onClick={() => receiptInputRef.current?.click()} type="button">
+                        {receiptFile ? 'استبدال الملف' : 'اختيار الملف'}
+                      </button>
+                    </section>
+                    {receiptFile ? (
+                      <article className="receipt-file-card">
+                        <span className="receipt-file-card__type">{receiptFile.type === 'application/pdf' ? 'PDF' : 'صورة'}</span>
+                        <div><strong>{receiptFile.name}</strong><small>{(receiptFile.size / 1024 / 1024).toFixed(1)} ميغابايت</small></div>
+                        <button className="plain-button plain-button--danger" onClick={() => {
+                          setReceiptFile(undefined);
+                          if (receiptInputRef.current) receiptInputRef.current.value = '';
+                        }} type="button">حذف</button>
+                      </article>
+                    ) : null}
+                  </div>
                   <label className="workflow-form__full">
                     مرجع التحويل (اختياري)
                     <input name="declaredReference" />
                   </label>
-                  <button className="button" disabled={busy} type="submit">
+                  <button className="button" disabled={busy || !receiptFile} type="submit">
                     {busy ? 'جاري رفع الإيصال...' : 'إرسال للمراجعة'}
                   </button>
                 </form>
@@ -1086,6 +1166,36 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </div>
         </section>
       </div>
+      {cancelTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setCancelTarget(undefined)}>
+          <section aria-labelledby="customer-cancel-title" aria-modal="true" className="cancel-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog">
+            <div className="cancel-dialog__icon" aria-hidden="true">!</div>
+            <div>
+              <p className="eyebrow">إجراء حساس</p>
+              <h2 id="customer-cancel-title">إلغاء {cancelTarget.kind === 'ORDER' ? 'الطلب' : 'طلب التصميم'}</h2>
+              <p>سيُنقل <strong>{cancelTarget.title}</strong> إلى قسم الملغاة مع الاحتفاظ بالسجل.</p>
+            </div>
+            <form onSubmit={(event) => {
+              if (cancelTarget.kind === 'ORDER') void cancelOrder(event, cancelTarget.id);
+              else void cancelRequest(event, cancelTarget.id);
+            }}>
+              <fieldset className="cancel-reasons">
+                <legend>اختر سببًا</legend>
+                {['غيّرت رأيي', 'السعر غير مناسب', 'أريد تعديل المواصفات', 'تأخر التنفيذ'].map((reason) => (
+                  <label key={reason}><input name="reason" required type="radio" value={reason} />{reason}</label>
+                ))}
+                <label><input name="reason" required type="radio" value="سبب آخر" />سبب آخر</label>
+              </fieldset>
+              <label className="cancel-dialog__note">تفاصيل إضافية (اختياري)<textarea name="details" rows={3} placeholder="اكتب أي توضيح يساعدنا على فهم سبب الإلغاء." /></label>
+              <div className="cancel-dialog__actions">
+                <button className="button button--secondary" onClick={() => setCancelTarget(undefined)} type="button">رجوع</button>
+                <button className="button button--danger" disabled={busy} type="submit">تأكيد الإلغاء</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
     </main>
   );
 }

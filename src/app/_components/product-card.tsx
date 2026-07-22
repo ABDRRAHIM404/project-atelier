@@ -30,15 +30,11 @@ export function ProductCard({ product }: ProductCardProps) {
           <Link href={`/catalog/${product.id}`}>{product.name}</Link>
         </h3>
         <p>{product.description}</p>
-        <div className="product-card__footer">
-          <span>يُنفذ حسب الطلب</span>
-          <Link className="text-link" href={`/catalog/${product.id}`}>
-            عرض التفاصيل
-          </Link>
+        <span className="product-card__status">يُنفذ حسب الطلب</span>
+        <div className="product-card__actions">
+          <Link className="text-link" href={`/catalog/${product.id}`}>عرض التفاصيل</Link>
+          <Link className="button button--small product-card__customize" href={`/workspace?productId=${product.id}`}>خصص هذا التصميم</Link>
         </div>
-        <Link className="button button--small product-card__customize" href={`/workspace?productId=${product.id}`}>
-          خصص هذا التصميم
-        </Link>
       </div>
     </article>
   );

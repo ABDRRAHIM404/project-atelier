@@ -183,6 +183,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [managedProductId, setManagedProductId] = useState<string>();
   const [requestSearch, setRequestSearch] = useState('');
   const [requestView, setRequestView] = useState<'ACTION' | 'WAITING' | 'CANCELLED' | 'HISTORY'>('ACTION');
+  const [cancelTarget, setCancelTarget] = useState<{ id: string; kind: 'ORDER' | 'REQUEST'; title: string }>();
   const requestDetailRef = useRef<HTMLElement>(null);
   const initialTabChosen = useRef(false);
 
@@ -243,6 +244,12 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     const timer = window.setTimeout(() => setNotice(''), 4_000);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(''), 7_000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   useEffect(() => {
     if (!requestDetail) return;
@@ -537,10 +544,11 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     const form = new FormData(event.currentTarget);
     await perform(async () => {
       await apiRequest(`/api/v1/orders/${orderId}/cancel`, {
-        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        body: JSON.stringify({ reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — ') }),
         method: 'POST',
       });
       setOrderDetail(undefined);
+      setCancelTarget(undefined);
     }, 'تم إلغاء الطلب وتسجيل السبب.');
   }
 
@@ -549,11 +557,29 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     const form = new FormData(event.currentTarget);
     await perform(async () => {
       await apiRequest(`/api/v1/requests/${requestId}/cancel`, {
-        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        body: JSON.stringify({ reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — ') }),
         method: 'POST',
       });
       setRequestDetail(undefined);
+      setCancelTarget(undefined);
     }, 'تم إلغاء الطلب وتسجيل السبب.');
+  }
+
+  async function openNotifications() {
+    setActiveTab('notifications');
+    const unread = notifications.filter((notification) => !notification.read);
+    if (unread.length === 0) return;
+    setNotifications((current) => current.map((notification) => ({ ...notification, read: true })));
+    try {
+      await Promise.all(
+        unread.map((notification) =>
+          apiRequest(`/api/v1/notifications/${notification.id}/read`, { method: 'POST' }),
+        ),
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر تحديث الإشعارات.');
+      await refresh();
+    }
   }
 
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
@@ -608,12 +634,14 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
       {demoEnabled ? <DemoRoleSwitch current="manager" /> : null}
       {error ? (
         <div className="toast toast--error" role="alert">
-          {error}
+          <span>{error}</span>
+          <button aria-label="إغلاق التنبيه" className="toast__close" onClick={() => setError('')} type="button">×</button>
         </div>
       ) : null}
       {notice ? (
         <div className="toast toast--success" role="status">
-          {notice}
+          <span>{notice}</span>
+          <button aria-label="إغلاق التنبيه" className="toast__close" onClick={() => setNotice('')} type="button">×</button>
         </div>
       ) : null}
 
@@ -673,7 +701,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           aria-selected={activeTab === 'notifications'}
           className={`manager-tab${activeTab === 'notifications' ? ' manager-tab--active' : ''}`}
           id="manager-tab-notifications"
-          onClick={() => setActiveTab('notifications')}
+          onClick={() => void openNotifications()}
           role="tab"
           type="button"
         >
@@ -1101,13 +1129,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                     إدارة الطلب
                   </button>
                   {!['COMPLETED', 'CANCELLED'].includes(order.lifecycleState) ? (
-                    <details className="danger-action">
-                      <summary>إلغاء الطلب</summary>
-                      <form onSubmit={(event) => cancelManagerOrder(event, order.id)}>
-                        <label>سبب الإلغاء<textarea name="reason" required minLength={2} rows={2} /></label>
-                        <button className="button button--secondary button--small" disabled={busy} type="submit">تأكيد الإلغاء</button>
-                      </form>
-                    </details>
+                    <button className="plain-button plain-button--danger" onClick={() => setCancelTarget({ id: order.id, kind: 'ORDER', title: order.displayReference })} type="button">إلغاء الطلب</button>
                   ) : null}
                 </article>
               ))
@@ -1165,18 +1187,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               </div>
             ) : null}
             {!['CANCELLED', 'REJECTED', 'COMPLETED'].includes(requestDetail.state) ? (
-              <details className="danger-action">
-                <summary>إلغاء الطلب</summary>
-                <form onSubmit={(event) => cancelManagerRequest(event, requestDetail.id)}>
-                  <label>
-                    سبب الإلغاء
-                    <textarea name="reason" required minLength={2} rows={2} />
-                  </label>
-                  <button className="button button--secondary button--small" disabled={busy} type="submit">
-                    تأكيد الإلغاء
-                  </button>
-                </form>
-              </details>
+              <button className="plain-button plain-button--danger" onClick={() => setCancelTarget({ id: requestDetail.id, kind: 'REQUEST', title: requestDetail.projectName })} type="button">إلغاء الطلب</button>
             ) : null}
             <form className="workflow-form" onSubmit={sendQuotation}>
               {requestDetail.items.map((item) => (
@@ -1528,6 +1539,26 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           </div>
         </section>
       </div>
+      {cancelTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setCancelTarget(undefined)}>
+          <section aria-labelledby="manager-cancel-title" aria-modal="true" className="cancel-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog">
+            <div className="cancel-dialog__icon" aria-hidden="true">!</div>
+            <div><p className="eyebrow">إجراء حساس</p><h2 id="manager-cancel-title">إلغاء {cancelTarget.kind === 'ORDER' ? 'الطلب الجاري' : 'طلب التصميم'}</h2><p>سيتم تسجيل السبب وإبلاغ العميل مع الاحتفاظ بالسجل الكامل.</p></div>
+            <form onSubmit={(event) => {
+              if (cancelTarget.kind === 'ORDER') void cancelManagerOrder(event, cancelTarget.id);
+              else void cancelManagerRequest(event, cancelTarget.id);
+            }}>
+              <fieldset className="cancel-reasons"><legend>اختر سببًا</legend>
+                {['تعذر التنفيذ', 'معلومات غير مكتملة', 'مشكلة في الدفع', 'طلب العميل الإلغاء'].map((reason) => (<label key={reason}><input name="reason" required type="radio" value={reason} />{reason}</label>))}
+                <label><input name="reason" required type="radio" value="سبب آخر" />سبب آخر</label>
+              </fieldset>
+              <label className="cancel-dialog__note">ملاحظة للعميل (اختياري)<textarea name="details" rows={3} placeholder="اكتب توضيحًا مختصرًا ومحترمًا." /></label>
+              <div className="cancel-dialog__actions"><button className="button button--secondary" onClick={() => setCancelTarget(undefined)} type="button">رجوع</button><button className="button button--danger" disabled={busy} type="submit">تأكيد الإلغاء</button></div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
     </main>
   );
 }
