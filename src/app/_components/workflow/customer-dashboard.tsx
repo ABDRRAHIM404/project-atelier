@@ -17,11 +17,22 @@ type Product = Readonly<{
 }>;
 
 type RequestSummary = Readonly<{
+  cancelledAt?: string;
+  cancellationReason?: string;
+  displayReference: string;
   id: string;
   itemCount: number;
   projectName: string;
+  requestType: 'CATALOG_PRODUCT' | 'CUSTOM_DESIGN';
   state: string;
   submittedAt: string;
+}>;
+
+type CustomerProfile = Readonly<{
+  address: string;
+  city: string;
+  fullName: string;
+  phoneNumber: string;
 }>;
 
 type Quotation = Readonly<{
@@ -92,7 +103,7 @@ type Message = Readonly<{
   sentAt: string;
 }>;
 
-type CustomerTab = 'requests' | 'quotations' | 'orders' | 'messages' | 'notifications';
+type CustomerTab = 'requests' | 'orders' | 'messages' | 'history' | 'notifications';
 
 type CustomerDashboardProps = Readonly<{
   demoEnabled: boolean;
@@ -118,6 +129,8 @@ function productName(itemSnapshot: Record<string, unknown>): string {
 
 export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDashboardProps) {
   const [requests, setRequests] = useState<readonly RequestSummary[]>([]);
+  const [profile, setProfile] = useState<CustomerProfile>({ address: '', city: '', fullName: '', phoneNumber: '' });
+  const [requestFilter, setRequestFilter] = useState<'ACTIVE' | 'CANCELLED' | 'HISTORY'>('ACTIVE');
   const [products, setProducts] = useState<readonly Product[]>([]);
   const [quotations, setQuotations] = useState<readonly Quotation[]>([]);
   const [orders, setOrders] = useState<readonly Order[]>([]);
@@ -149,6 +162,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         orderResult,
         notificationResult,
         messageResult,
+        profileResult,
       ] = await Promise.all([
         apiRequest<{ products: readonly Product[] }>('/api/v1/catalog'),
         apiRequest<{ requests: readonly RequestSummary[] }>('/api/v1/requests'),
@@ -156,6 +170,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         apiRequest<{ orders: readonly Order[] }>('/api/v1/orders'),
         apiRequest<{ notifications: readonly Notification[] }>('/api/v1/notifications'),
         apiRequest<{ messages: readonly Message[] }>('/api/v1/messages'),
+        apiRequest<CustomerProfile>('/api/v1/profile'),
       ]);
       setProducts(catalog.products);
       setRequests(requestResult.requests);
@@ -163,6 +178,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       setOrders(orderResult.orders);
       setNotifications(notificationResult.notifications);
       setMessages(messageResult.messages);
+      setProfile(profileResult);
       if (initialProductId && !initialProductHandled.current) {
         initialProductHandled.current = true;
         initialTabChosen.current = true;
@@ -171,11 +187,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       } else if (!initialTabChosen.current) {
         initialTabChosen.current = true;
         setActiveTab(
-          quotationResult.quotations.some((quotation) => quotation.state === 'SENT')
-            ? 'quotations'
-            : orderResult.orders.length > 0
-              ? 'orders'
-              : 'requests',
+          orderResult.orders.length > 0 ? 'orders' : 'requests',
         );
       }
     } catch (caught) {
@@ -306,6 +318,18 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     }, 'تم إرسال إيصال التحويل للمراجعة.');
   }
 
+  async function cancelOrder(event: FormEvent<HTMLFormElement>, orderId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await perform(async () => {
+      await apiRequest(`/api/v1/orders/${orderId}/cancel`, {
+        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        method: 'POST',
+      });
+      setOrderDetail(undefined);
+    }, 'تم إلغاء الطلب وتسجيل السبب.');
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -322,10 +346,47 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     }, 'تم إرسال الرسالة.');
   }
 
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await perform(async () => {
+      const updated = await apiRequest<CustomerProfile>('/api/v1/profile', {
+        body: JSON.stringify({
+          address: formText(form, 'address'),
+          city: formText(form, 'city'),
+          fullName: formText(form, 'fullName'),
+          phoneNumber: formText(form, 'phoneNumber'),
+        }),
+        method: 'PATCH',
+      });
+      setProfile(updated);
+    }, 'تم حفظ بياناتك.');
+  }
+
+  async function cancelRequest(event: FormEvent<HTMLFormElement>, requestId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await perform(async () => {
+      await apiRequest(`/api/v1/requests/${requestId}/cancel`, {
+        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        method: 'POST',
+      });
+    }, 'تم إلغاء الطلب ونقله إلى السجل.');
+  }
+
+  async function archiveRequest(requestId: string) {
+    await perform(async () => {
+      await apiRequest(`/api/v1/requests/${requestId}/archive`, { method: 'POST' });
+    }, 'تم نقل الطلب إلى السجل.');
+  }
+
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
-  const actionableQuotationCount = quotations.filter(
-    (quotation) => quotation.state === 'SENT',
-  ).length;
+  const activeRequestStates = new Set(['SUBMITTED', 'UNDER_REVIEW', 'WAITING_FOR_CUSTOMER_INFORMATION', 'READY_FOR_QUOTATION', 'QUOTED']);
+  const filteredRequests = requests.filter((request) => {
+    if (requestFilter === 'ACTIVE') return activeRequestStates.has(request.state);
+    if (requestFilter === 'CANCELLED') return request.state === 'CANCELLED';
+    return ['REJECTED', 'COMPLETED'].includes(request.state);
+  });
   const selectedProduct = products.find((product) => product.id === selectedProductId);
   const normalizedProductSearch = productSearch.trim().toLocaleLowerCase('ar');
   const filteredProducts = products
@@ -356,14 +417,28 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         </Link>
       </header>
 
+      <section className="customer-quick-actions" aria-label="إجراءات سريعة">
+        <Link className="button" href="/custom-design">أرسل تصميمك الخاص</Link>
+        <details className="profile-panel">
+          <summary>{profile.fullName ? `بياناتي: ${profile.fullName}` : 'أكمل بياناتك'}</summary>
+          <form className="workflow-form workflow-form--compact" onSubmit={saveProfile}>
+            <label>الاسم الكامل<input defaultValue={profile.fullName} name="fullName" required minLength={2} /></label>
+            <label>رقم الهاتف<input defaultValue={profile.phoneNumber} name="phoneNumber" required minLength={6} /></label>
+            <label>المدينة<input defaultValue={profile.city} name="city" required minLength={2} /></label>
+            <label className="workflow-form__full">العنوان (اختياري)<textarea defaultValue={profile.address} name="address" rows={2} /></label>
+            <button className="button button--small" disabled={busy} type="submit">حفظ البيانات</button>
+          </form>
+        </details>
+      </section>
+
       {demoEnabled ? <DemoRoleSwitch current="customer" /> : null}
       {error ? (
-        <div className="workflow-alert workflow-alert--error" role="alert">
+        <div className="toast toast--error" role="alert">
           {error}
         </div>
       ) : null}
       {notice ? (
-        <div className="workflow-alert workflow-alert--success" role="status">
+        <div className="toast toast--success" role="status">
           {notice}
         </div>
       ) : null}
@@ -415,17 +490,14 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           الطلبات الجديدة <span className="customer-tab__count">{requests.length}</span>
         </button>
         <button
-          aria-controls="customer-panel-quotations"
-          aria-selected={activeTab === 'quotations'}
-          className={`customer-tab${activeTab === 'quotations' ? ' customer-tab--active' : ''}`}
-          onClick={() => setActiveTab('quotations')}
+          aria-controls="customer-panel-history"
+          aria-selected={activeTab === 'history'}
+          className={`customer-tab${activeTab === 'history' ? ' customer-tab--active' : ''}`}
+          onClick={() => setActiveTab('history')}
           role="tab"
           type="button"
         >
-          عروض السعر
-          {actionableQuotationCount > 0 ? (
-            <span className="customer-tab__badge">{badgeText(actionableQuotationCount)}</span>
-          ) : null}
+          السجل
         </button>
         <button
           aria-controls="customer-panel-orders"
@@ -582,19 +654,37 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </form>
 
           <div className="workflow-stack direct-request-list">
-            <h3>الطلبات المرسلة</h3>
-            {requests.length === 0 ? (
-              <p className="workspace-empty">لم ترسل أي طلب بعد.</p>
+            <div className="saved-views" aria-label="تصفية الطلبات">
+              <button className={requestFilter === 'ACTIVE' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('ACTIVE')} type="button">النشطة</button>
+              <button className={requestFilter === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('CANCELLED')} type="button">الملغاة</button>
+              <button className={requestFilter === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('HISTORY')} type="button">السجل</button>
+            </div>
+            <h3>طلباتي</h3>
+            {filteredRequests.length === 0 ? (
+              <p className="workspace-empty">لا توجد عناصر في هذا العرض.</p>
             ) : (
-              requests.map((request) => (
+              filteredRequests.map((request) => (
                 <article className="workflow-card" key={request.id}>
                   <div className="workflow-card__heading">
                     <div>
                       <h3>{request.projectName}</h3>
-                      <span>{formatDate(request.submittedAt)}</span>
+                      <span>{request.displayReference} · {formatDate(request.submittedAt)}</span>
                     </div>
                     <span className="status-badge">{stateLabel(request.state)}</span>
                   </div>
+                  <p className="request-type-label">{request.requestType === 'CUSTOM_DESIGN' ? 'تصميم خاص' : 'منتج من الكتالوج'}</p>
+                  {activeRequestStates.has(request.state) ? (
+                    <details className="danger-action">
+                      <summary>إلغاء الطلب</summary>
+                      <form onSubmit={(event) => cancelRequest(event, request.id)}>
+                        <label>سبب الإلغاء<textarea name="reason" required minLength={2} rows={2} /></label>
+                        <button className="button button--secondary button--small" disabled={busy} type="submit">تأكيد الإلغاء</button>
+                      </form>
+                    </details>
+                  ) : null}
+                  {['CANCELLED', 'REJECTED', 'COMPLETED'].includes(request.state) ? (
+                    <button className="plain-button" disabled={busy} onClick={() => archiveRequest(request.id)} type="button">نقل إلى السجل</button>
+                  ) : null}
                 </article>
               ))
             )}
@@ -604,15 +694,15 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         <section
           aria-labelledby="quotes-title"
           className="workspace-panel workspace-panel--full"
-          hidden={activeTab !== 'quotations'}
-          id="customer-panel-quotations"
+          hidden={activeTab !== 'history'}
+          id="customer-panel-history"
           role="tabpanel"
           tabIndex={0}
         >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">التسعير</p>
-              <h2 id="quotes-title">عروض السعر</h2>
+              <h2 id="quotes-title">السجل وعروض السعر</h2>
             </div>
             <span className="count-pill">{quotations.length}</span>
           </div>
@@ -726,6 +816,15 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   >
                     عرض التفاصيل
                   </button>
+                  {!['COMPLETED', 'CANCELLED'].includes(order.lifecycleState) ? (
+                    <details className="danger-action">
+                      <summary>طلب إلغاء</summary>
+                      <form onSubmit={(event) => cancelOrder(event, order.id)}>
+                        <label>سبب الإلغاء<textarea name="reason" required minLength={2} rows={2} /></label>
+                        <button className="button button--secondary button--small" disabled={busy} type="submit">تأكيد طلب الإلغاء</button>
+                      </form>
+                    </details>
+                  ) : null}
                 </article>
               ))
             )}
@@ -810,7 +909,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   </button>
                 </form>
               ) : (
-                <div className="workflow-alert workflow-alert--success" role="status">
+                <div className="toast toast--success" role="status">
                   تم تأكيد تفاصيل{' '}
                   {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'التوصيل' : 'الاستلام'}.
                 </div>

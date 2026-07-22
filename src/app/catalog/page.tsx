@@ -105,6 +105,15 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
             {query ? <span>{translate('querySummary', { query })}</span> : null}
           </div>
 
+          <aside className="custom-design-callout">
+            <div>
+              <p className="eyebrow">لم تجد ما تبحث عنه؟</p>
+              <h2>أرسل لنا تصميمك الخاص</h2>
+              <p>ارفع صورة أو مخططًا، وسيراجع المدير إمكانية التنفيذ ثم يرسل لك السعر والمدة.</p>
+            </div>
+            <Link className="button" href="/custom-design">رفع تصميمي</Link>
+          </aside>
+
           {products.length > 0 ? (
             <div className="product-grid product-grid--catalog">
               {products.map((product) => (

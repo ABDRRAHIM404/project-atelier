@@ -122,6 +122,28 @@
       "riskClass": "C",
       "transactionSafe": true,
       "verification": "npm run migrations:check"
+    },
+    {
+      "backwardCompatibility": "Additive service operations, customer profiles, request history, and custom-design uploads",
+      "checksumSha256": "0eb2e96115357999ae3914fb5408b8a231b537c703797cec13f41709dacec6c2",
+      "dataEffect": "Backfills readable request references; adds nullable customer profile and lifecycle metadata; creates one private storage bucket",
+      "dependencies": [
+        "20260721000100"
+      ],
+      "expectedLock": "Brief metadata locks on customer, request, request-item, and order tables",
+      "file": "20260722000100_service_operations_and_custom_designs.sql",
+      "id": "20260722000100",
+      "owners": [
+        "customer-projects",
+        "orders",
+        "access-and-identity",
+        "files-and-media",
+        "audit-and-operations"
+      ],
+      "recovery": "Rollback the uncommitted transaction; use a reviewed forward-fix after commit",
+      "riskClass": "D",
+      "transactionSafe": true,
+      "verification": "npm run migrations:check && npm run typecheck"
     }
   ]
 }

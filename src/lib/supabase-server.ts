@@ -41,3 +41,13 @@ export function paymentProofStoragePath(orderId: string, file: File): string {
     .slice(0, 16);
   return `orders/${orderId}/${uuid}.${extension}`;
 }
+
+
+export function customDesignStoragePath(principalId: string, file: File): string {
+  const extension = file.name.split('.').pop()?.toLowerCase() || 'bin';
+  const uuid = createHash('sha1')
+    .update(`${principalId}:${file.name}:${Date.now()}:${Math.random()}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `customers/${principalId}/${uuid}.${extension}`;
+}

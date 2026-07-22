@@ -7,12 +7,18 @@ import { apiRequest, formatDate, formatMoney, stateLabel } from './client-api';
 import { DemoRoleSwitch } from './demo-role-switch';
 
 type RequestSummary = Readonly<{
+  cancelledAt?: string;
+  cancellationReason?: string;
+  customerCity?: string;
   customerId: string;
   customerLabel: string;
+  customerPhone?: string;
+  displayReference: string;
   id: string;
   itemCount: number;
-  projectId: string;
+  projectId?: string;
   projectName: string;
+  requestType: 'CATALOG_PRODUCT' | 'CUSTOM_DESIGN';
   state: string;
   submittedAt: string;
 }>;
@@ -20,6 +26,8 @@ type RequestSummary = Readonly<{
 type RequestDetail = RequestSummary &
   Readonly<{
     customerNotes: string;
+    customDesignDetails: Record<string, unknown>;
+    customDesignFiles: readonly Record<string, unknown>[];
     items: readonly Readonly<{
       configuration: Record<string, unknown>;
       customerNotes: string;
@@ -173,6 +181,8 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [activeTab, setActiveTab] = useState<ManagerTab>('catalog');
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('ALL');
   const [managedProductId, setManagedProductId] = useState<string>();
+  const [requestSearch, setRequestSearch] = useState('');
+  const [requestView, setRequestView] = useState<'ACTION' | 'WAITING' | 'CANCELLED' | 'HISTORY'>('ACTION');
   const requestDetailRef = useRef<HTMLElement>(null);
   const initialTabChosen = useRef(false);
 
@@ -522,6 +532,30 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     }, 'تم إرسال الرسالة للعميل.');
   }
 
+  async function cancelManagerOrder(event: FormEvent<HTMLFormElement>, orderId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await perform(async () => {
+      await apiRequest(`/api/v1/orders/${orderId}/cancel`, {
+        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        method: 'POST',
+      });
+      setOrderDetail(undefined);
+    }, 'تم إلغاء الطلب وتسجيل السبب.');
+  }
+
+  async function cancelManagerRequest(event: FormEvent<HTMLFormElement>, requestId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await perform(async () => {
+      await apiRequest(`/api/v1/requests/${requestId}/cancel`, {
+        body: JSON.stringify({ reason: formText(form, 'reason') }),
+        method: 'POST',
+      });
+      setRequestDetail(undefined);
+    }, 'تم إلغاء الطلب وتسجيل السبب.');
+  }
+
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
   const filteredCatalogProducts = catalogProducts.filter(
     (product) => catalogFilter === 'ALL' || product.lifecycle === catalogFilter,
@@ -532,6 +566,19 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     DRAFT: catalogProducts.filter((product) => product.lifecycle === 'DRAFT').length,
     PUBLISHED: catalogProducts.filter((product) => product.lifecycle === 'PUBLISHED').length,
   } as const;
+
+  const normalizedRequestSearch = requestSearch.trim().toLocaleLowerCase('ar');
+  const inboxRequests = requests.filter((request) => {
+    const matchesSearch = !normalizedRequestSearch ||
+      `${request.customerLabel} ${request.customerPhone ?? ''} ${request.displayReference} ${request.projectName}`
+        .toLocaleLowerCase('ar')
+        .includes(normalizedRequestSearch);
+    if (!matchesSearch) return false;
+    if (requestView === 'ACTION') return ['SUBMITTED', 'UNDER_REVIEW', 'READY_FOR_QUOTATION'].includes(request.state);
+    if (requestView === 'WAITING') return ['WAITING_FOR_CUSTOMER_INFORMATION', 'QUOTED'].includes(request.state);
+    if (requestView === 'CANCELLED') return request.state === 'CANCELLED';
+    return ['REJECTED', 'COMPLETED'].includes(request.state);
+  });
 
   const latestSubmission = orderDetail?.paymentSubmissions.at(-1);
   const nextState =
@@ -560,12 +607,12 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
 
       {demoEnabled ? <DemoRoleSwitch current="manager" /> : null}
       {error ? (
-        <div className="workflow-alert workflow-alert--error" role="alert">
+        <div className="toast toast--error" role="alert">
           {error}
         </div>
       ) : null}
       {notice ? (
-        <div className="workflow-alert workflow-alert--success" role="status">
+        <div className="toast toast--success" role="status">
           {notice}
         </div>
       ) : null}
@@ -591,7 +638,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           role="tab"
           type="button"
         >
-          الطلبات الجديدة
+          صندوق العمل
           {requests.length > 0 ? (
             <span className="manager-tab__badge">{badgeText(requests.length)}</span>
           ) : null}
@@ -605,7 +652,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           role="tab"
           type="button"
         >
-          الطلبات المعتمدة
+          الطلبات الجارية
           {orders.length > 0 ? (
             <span className="manager-tab__badge">{badgeText(orders.length)}</span>
           ) : null}
@@ -735,10 +782,13 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                   <article className="catalog-product-card" key={product.id}>
                     <div className="catalog-product-card__image">
                       {primaryImage ? (
-                        <img
-                          alt={primaryImage.altText ?? product.name}
-                          src={primaryImage.publicUrl}
-                        />
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            alt={primaryImage.altText ?? product.name}
+                            src={primaryImage.publicUrl}
+                          />
+                        </>
                       ) : (
                         <div className="catalog-product-card__placeholder" aria-hidden="true">
                           صورة
@@ -803,6 +853,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                           <div className="catalog-image-grid">
                             {images.map((image) => (
                               <article className="catalog-image-card" key={image.id}>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img alt={image.altText ?? product.name} src={image.publicUrl} />
                                 <div className="workflow-actions">
                                   <button
@@ -958,27 +1009,34 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         >
           <div className="workspace-panel__heading">
             <div>
-              <p className="eyebrow">صندوق الطلبات</p>
-              <h2 id="manager-requests-title">طلبات التصميم</h2>
+              <p className="eyebrow">صندوق العمل</p>
+              <h2 id="manager-requests-title">ما يحتاج إلى انتباهك</h2>
             </div>
             <span className="count-pill">{requests.length}</span>
           </div>
-          <div className="workflow-stack">
-            {requests.length === 0 ? (
+          <div className="manager-inbox-controls">
+            <label className="manager-inbox-search">بحث<input type="search" value={requestSearch} onChange={(event) => setRequestSearch(event.currentTarget.value)} placeholder="العميل، الهاتف، المرجع..." /></label>
+            <div className="saved-views">
+              <button className={requestView === 'ACTION' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('ACTION')} type="button">يحتاج إجراء</button>
+              <button className={requestView === 'WAITING' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('WAITING')} type="button">بانتظار العميل</button>
+              <button className={requestView === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('CANCELLED')} type="button">الملغاة</button>
+              <button className={requestView === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('HISTORY')} type="button">السجل</button>
+            </div>
+          </div>
+          <div className="manager-inbox-list">
+            {inboxRequests.length === 0 ? (
               <p className="workspace-empty">لا توجد طلبات جديدة.</p>
             ) : (
-              requests.map((request) => (
+              inboxRequests.map((request) => (
                 <article className="workflow-card" key={request.id}>
                   <div className="workflow-card__heading">
                     <div>
                       <h3>{request.projectName}</h3>
-                      <span>
-                        {request.customerLabel} · {request.itemCount} تصميم
-                      </span>
+                      <span>{request.customerLabel}{request.customerCity ? ` · ${request.customerCity}` : ''}{request.customerPhone ? ` · ${request.customerPhone}` : ''}</span>
                     </div>
                     <span className="status-badge">{stateLabel(request.state)}</span>
                   </div>
-                  <p>{formatDate(request.submittedAt)}</p>
+                  <p>{request.displayReference} · {request.requestType === 'CUSTOM_DESIGN' ? 'تصميم خاص' : 'منتج من الكتالوج'} · {formatDate(request.submittedAt)}</p>
                   <button
                     className="button button--secondary button--small"
                     disabled={busy}
@@ -996,11 +1054,14 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         <section
           className="workspace-panel workspace-panel--wide"
           aria-labelledby="manager-orders-title"
+          hidden={activeTab !== 'orders'}
+          id="manager-panel-orders"
+          role="tabpanel"
         >
           <div className="workspace-panel__heading">
             <div>
               <p className="eyebrow">التنفيذ</p>
-              <h2 id="manager-orders-title">الطلبات المعتمدة</h2>
+              <h2 id="manager-orders-title">الطلبات الجارية</h2>
             </div>
             <span className="count-pill">{orders.length}</span>
           </div>
@@ -1039,6 +1100,15 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                   >
                     إدارة الطلب
                   </button>
+                  {!['COMPLETED', 'CANCELLED'].includes(order.lifecycleState) ? (
+                    <details className="danger-action">
+                      <summary>إلغاء الطلب</summary>
+                      <form onSubmit={(event) => cancelManagerOrder(event, order.id)}>
+                        <label>سبب الإلغاء<textarea name="reason" required minLength={2} rows={2} /></label>
+                        <button className="button button--secondary button--small" disabled={busy} type="submit">تأكيد الإلغاء</button>
+                      </form>
+                    </details>
+                  ) : null}
                 </article>
               ))
             )}
@@ -1067,7 +1137,47 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 إغلاق
               </button>
             </div>
+            <div className="request-detail-summary">
+              <span><small>المرجع</small>{requestDetail.displayReference}</span>
+              <span><small>العميل</small>{requestDetail.customerLabel}</span>
+              {requestDetail.customerPhone ? <span><small>الهاتف</small>{requestDetail.customerPhone}</span> : null}
+              {requestDetail.customerCity ? <span><small>المدينة</small>{requestDetail.customerCity}</span> : null}
+            </div>
             <p>{requestDetail.customerNotes || 'لا توجد ملاحظات عامة.'}</p>
+            {requestDetail.requestType === 'CUSTOM_DESIGN' && requestDetail.customDesignFiles.length > 0 ? (
+              <div className="custom-design-file-list">
+                {requestDetail.customDesignFiles.map((file, index) => (
+                  <a
+                    className="custom-design-file"
+                    href={typeof file.signedUrl === 'string' ? file.signedUrl : undefined}
+                    key={`${String(file.objectKey)}-${index}`}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {typeof file.signedUrl === 'string' && String(file.mediaType ?? '').startsWith('image/') ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img alt={String(file.displayName ?? `ملف ${index + 1}`)} src={file.signedUrl} />
+                    ) : <span className="custom-design-file__icon">PDF</span>}
+                    <strong>{String(file.displayName ?? `ملف ${index + 1}`)}</strong>
+                    <small>فتح الملف</small>
+                  </a>
+                ))}
+              </div>
+            ) : null}
+            {!['CANCELLED', 'REJECTED', 'COMPLETED'].includes(requestDetail.state) ? (
+              <details className="danger-action">
+                <summary>إلغاء الطلب</summary>
+                <form onSubmit={(event) => cancelManagerRequest(event, requestDetail.id)}>
+                  <label>
+                    سبب الإلغاء
+                    <textarea name="reason" required minLength={2} rows={2} />
+                  </label>
+                  <button className="button button--secondary button--small" disabled={busy} type="submit">
+                    تأكيد الإلغاء
+                  </button>
+                </form>
+              </details>
+            ) : null}
             <form className="workflow-form" onSubmit={sendQuotation}>
               {requestDetail.items.map((item) => (
                 <fieldset className="quote-line" key={item.id}>

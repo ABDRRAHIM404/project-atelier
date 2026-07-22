@@ -12,11 +12,14 @@ export function ProductCard({ product }: ProductCardProps) {
     <article className="product-card">
       <Link className="product-card__visual-link" href={`/catalog/${product.id}`}>
         {product.imageUrl ? (
-          <img
-            alt={product.imageAlt ?? product.name}
-            src={product.imageUrl}
-            style={{ height: '100%', objectFit: 'cover', width: '100%' }}
-          />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt={product.imageAlt ?? product.name}
+              src={product.imageUrl}
+              style={{ height: '100%', objectFit: 'cover', width: '100%' }}
+            />
+          </>
         ) : (
           <ProductVisual label={product.name} visual={product.visual} />
         )}

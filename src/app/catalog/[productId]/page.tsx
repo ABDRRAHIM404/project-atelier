@@ -32,11 +32,14 @@ export default async function ProductPage({ params }: ProductPageProps) {
         <section className="product-detail section-shell" aria-labelledby="product-title">
           <div className="product-detail__visual">
             {product.imageUrl ? (
-              <img
-                alt={product.imageAlt ?? product.name}
-                src={product.imageUrl}
-                style={{ height: '100%', objectFit: 'cover', width: '100%' }}
-              />
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt={product.imageAlt ?? product.name}
+                  src={product.imageUrl}
+                  style={{ height: '100%', objectFit: 'cover', width: '100%' }}
+                />
+              </>
             ) : (
               <ProductVisual label={product.name} visual={product.visual} />
             )}

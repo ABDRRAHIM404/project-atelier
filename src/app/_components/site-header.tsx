@@ -32,6 +32,7 @@ export async function SiteHeader() {
         <nav className="primary-navigation" aria-label={translate('label')}>
           <Link href="/catalog">{translate('catalog')}</Link>
           <Link href="/how-it-works">{translate('howItWorks')}</Link>
+          <Link href="/custom-design">تصميمك الخاص</Link>
           <Link href={dashboardHref}>{dashboardLabel}</Link>
         </nav>
 

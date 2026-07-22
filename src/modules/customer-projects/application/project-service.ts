@@ -42,12 +42,18 @@ export type CustomerProjectSummary = Readonly<{
 }>;
 
 export type SubmittedRequestSummary = Readonly<{
+  cancelledAt?: string | undefined;
+  cancellationReason?: string | undefined;
+  customerCity?: string | undefined;
   customerId: string;
   customerLabel: string;
+  customerPhone?: string | undefined;
+  displayReference: string;
   id: string;
   itemCount: number;
-  projectId: string;
+  projectId?: string | undefined;
   projectName: string;
+  requestType: 'CATALOG_PRODUCT' | 'CUSTOM_DESIGN';
   state: string;
   submittedAt: string;
 }>;
@@ -55,6 +61,8 @@ export type SubmittedRequestSummary = Readonly<{
 export type SubmittedRequestDetail = SubmittedRequestSummary &
   Readonly<{
     customerNotes: string;
+    customDesignDetails: Record<string, unknown>;
+    customDesignFiles: readonly Record<string, unknown>[];
     items: readonly Readonly<{
       configuration: Record<string, unknown>;
       customerNotes: string;
@@ -63,6 +71,12 @@ export type SubmittedRequestDetail = SubmittedRequestSummary &
       sequence: number;
     }>[];
   }>;
+
+function requestReference(now = new Date()): string {
+  const year = now.getUTCFullYear();
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 6).toUpperCase();
+  return `REQ-${year}-${suffix}`;
+}
 
 export class CustomerProjectService {
   async createProject(
@@ -337,17 +351,22 @@ export class CustomerProjectService {
     const actor = customerActor(transaction);
     const result = await transaction.query<
       QueryResultRow & {
+        cancelled_at: Date | null;
+        cancellation_reason: string | null;
         customer_id: string;
+        display_reference: string;
         id: string;
         item_count: number;
-        project_id: string;
+        project_id: string | null;
         project_name_snapshot: string;
+        request_type: 'CATALOG_PRODUCT' | 'CUSTOM_DESIGN';
         state: string;
         submitted_at: Date;
       }
     >(
       `select r.id, r.source_project_id as project_id, r.customer_id, r.state,
-              r.project_name_snapshot, r.submitted_at,
+              r.project_name_snapshot, r.submitted_at, r.display_reference,
+              r.request_type, r.cancelled_at, r.cancellation_reason,
               count(i.id)::integer as item_count
        from projects.submitted_requests r
        left join projects.submitted_request_items i on i.request_id = r.id
@@ -359,12 +378,16 @@ export class CustomerProjectService {
     return Object.freeze(
       result.rows.map((row) =>
         Object.freeze({
+          cancelledAt: row.cancelled_at?.toISOString(),
+          cancellationReason: row.cancellation_reason ?? undefined,
           customerId: row.customer_id,
           customerLabel: 'العميل',
+          displayReference: row.display_reference,
           id: row.id,
           itemCount: row.item_count,
-          projectId: row.project_id,
+          projectId: row.project_id ?? undefined,
           projectName: row.project_name_snapshot.replace(/^طلب\s+/u, ''),
+          requestType: row.request_type,
           state: row.state,
           submittedAt: row.submitted_at.toISOString(),
         }),
@@ -379,19 +402,30 @@ export class CustomerProjectService {
     managerActor(transaction);
     const request = await transaction.query<
       QueryResultRow & {
+        cancelled_at: Date | null;
+        cancellation_reason: string | null;
+        customer_city: string | null;
         customer_id: string;
         customer_label: string;
         customer_notes_snapshot: string;
+        customer_phone: string | null;
+        custom_design_details: Record<string, unknown>;
+        custom_design_files: Record<string, unknown>[];
+        display_reference: string;
         id: string;
-        project_id: string;
+        project_id: string | null;
         project_name_snapshot: string;
+        request_type: 'CATALOG_PRODUCT' | 'CUSTOM_DESIGN';
         state: string;
         submitted_at: Date;
       }
     >(
       `select r.id, r.source_project_id as project_id, r.customer_id, r.state,
               r.project_name_snapshot, r.customer_notes_snapshot, r.submitted_at,
-              coalesce(c.contact_email, c.verified_email_snapshot, 'عميل') as customer_label
+              r.display_reference, r.request_type, r.custom_design_details,
+              r.custom_design_files, r.cancelled_at, r.cancellation_reason,
+              coalesce(nullif(c.full_name, ''), c.contact_email, c.verified_email_snapshot, 'عميل') as customer_label,
+              c.phone_number as customer_phone, c.city as customer_city
        from projects.submitted_requests r
        join iam.customers c on c.id = r.customer_id
        where r.id = $1`,
@@ -418,9 +452,16 @@ export class CustomerProjectService {
     );
 
     return Object.freeze({
+      cancelledAt: row.cancelled_at?.toISOString(),
+      cancellationReason: row.cancellation_reason ?? undefined,
+      customerCity: row.customer_city ?? undefined,
       customerId: row.customer_id,
       customerLabel: row.customer_label,
       customerNotes: row.customer_notes_snapshot,
+      customerPhone: row.customer_phone ?? undefined,
+      customDesignDetails: row.custom_design_details,
+      customDesignFiles: Object.freeze(row.custom_design_files ?? []),
+      displayReference: row.display_reference,
       id: row.id,
       itemCount: items.rows.length,
       items: Object.freeze(
@@ -437,8 +478,9 @@ export class CustomerProjectService {
           }),
         ),
       ),
-      projectId: row.project_id,
+      projectId: row.project_id ?? undefined,
       projectName: row.project_name_snapshot,
+      requestType: row.request_type,
       state: row.state,
       submittedAt: row.submitted_at.toISOString(),
     });
@@ -450,39 +492,175 @@ export class CustomerProjectService {
     managerActor(transaction);
     const result = await transaction.query<
       QueryResultRow & {
+        cancelled_at: Date | null;
+        cancellation_reason: string | null;
+        customer_city: string | null;
         customer_id: string;
         customer_label: string;
+        customer_phone: string | null;
+        display_reference: string;
         id: string;
         item_count: number;
-        project_id: string;
+        project_id: string | null;
         project_name_snapshot: string;
+        request_type: 'CATALOG_PRODUCT' | 'CUSTOM_DESIGN';
         state: string;
         submitted_at: Date;
       }
     >(
       `select r.id, r.source_project_id as project_id, r.customer_id, r.state,
-              r.project_name_snapshot, r.submitted_at,
-              coalesce(c.contact_email, c.verified_email_snapshot, 'عميل') as customer_label,
+              r.project_name_snapshot, r.submitted_at, r.display_reference,
+              r.request_type, r.cancelled_at, r.cancellation_reason,
+              coalesce(nullif(c.full_name, ''), c.contact_email, c.verified_email_snapshot, 'عميل') as customer_label,
+              c.phone_number as customer_phone, c.city as customer_city,
               count(i.id)::integer as item_count
        from projects.submitted_requests r
        join iam.customers c on c.id = r.customer_id
        left join projects.submitted_request_items i on i.request_id = r.id
-       group by r.id, c.contact_email, c.verified_email_snapshot
-       order by r.submitted_at desc`,
+       group by r.id, c.full_name, c.contact_email, c.verified_email_snapshot,
+                c.phone_number, c.city
+       order by
+         case when r.state in ('SUBMITTED','UNDER_REVIEW','WAITING_FOR_CUSTOMER_INFORMATION','READY_FOR_QUOTATION') then 0 else 1 end,
+         r.submitted_at desc`,
     );
     return Object.freeze(
       result.rows.map((row) =>
         Object.freeze({
+          cancelledAt: row.cancelled_at?.toISOString(),
+          cancellationReason: row.cancellation_reason ?? undefined,
+          customerCity: row.customer_city ?? undefined,
           customerId: row.customer_id,
           customerLabel: row.customer_label,
+          customerPhone: row.customer_phone ?? undefined,
+          displayReference: row.display_reference,
           id: row.id,
           itemCount: row.item_count,
-          projectId: row.project_id,
+          projectId: row.project_id ?? undefined,
           projectName: row.project_name_snapshot,
+          requestType: row.request_type,
           state: row.state,
           submittedAt: row.submitted_at.toISOString(),
         }),
       ),
     );
   }
+
+  async createCustomDesignRequest(
+    transaction: ActorScopedTransaction,
+    input: Readonly<{
+      customerNotes?: string | undefined;
+      details: Record<string, unknown>;
+      files: readonly Record<string, unknown>[];
+      title: string;
+    }>,
+  ): Promise<Readonly<{ displayReference: string; requestId: string }>> {
+    const actor = customerActor(transaction);
+    const title = input.title.trim();
+    if (title.length < 2 || title.length > 120) throw new Error('VALIDATION_FAILED');
+    if (input.files.length < 1 || input.files.length > 8) throw new Error('CUSTOM_DESIGN_FILES_REQUIRED');
+    const requestId = randomUUID();
+    const itemId = randomUUID();
+    const displayReference = requestReference();
+    await transaction.query(
+      `insert into projects.submitted_requests
+         (id, source_project_id, customer_id, state, request_type, display_reference,
+          project_name_snapshot, customer_notes_snapshot, custom_design_details,
+          custom_design_files)
+       values ($1, null, $2, 'SUBMITTED', 'CUSTOM_DESIGN', $3, $4, $5, $6::jsonb, $7::jsonb)`,
+      [
+        requestId,
+        actor.customerId,
+        displayReference,
+        title,
+        input.customerNotes ?? '',
+        JSON.stringify(input.details),
+        JSON.stringify(input.files),
+      ],
+    );
+    await transaction.query(
+      `insert into projects.submitted_request_items
+         (id, request_id, source_project_item_id, sequence, product_id,
+          product_snapshot, configuration_snapshot, customer_notes_snapshot)
+       values ($1, $2, null, 1, null, $3::jsonb, $4::jsonb, $5)`,
+      [
+        itemId,
+        requestId,
+        JSON.stringify({ name: title, type: 'CUSTOM_DESIGN' }),
+        JSON.stringify({ schemaVersion: 1, details: input.details, files: input.files }),
+        input.customerNotes ?? '',
+      ],
+    );
+    await this.recordActivity(transaction, requestId, 'CUSTOM_DESIGN_SUBMITTED', undefined, 'SUBMITTED', 'تم إرسال تصميم خاص للمراجعة.');
+    await transaction.query(
+      `insert into notifications.notifications
+         (recipient_principal_id, event_type, resource_type, resource_id,
+          title_ar, body_ar, event_key)
+       select m.principal_id, 'CUSTOM_DESIGN_SUBMITTED', 'REQUEST', $1,
+              'تصميم خاص جديد', $2, $3
+       from iam.managers m where m.is_active
+       on conflict (recipient_principal_id, event_key) do nothing`,
+      [requestId, `تم استلام ${displayReference}.`, `request:${requestId}:custom-submitted`],
+    );
+    return Object.freeze({ displayReference, requestId });
+  }
+
+  async cancelRequest(
+    transaction: ActorScopedTransaction,
+    requestId: string,
+    reason: string,
+  ): Promise<void> {
+    const context = transaction.actorContext;
+    const actorKind = context.actor.kind;
+    if (actorKind !== 'customer' && actorKind !== 'manager') throw new Error('AUTHENTICATION_REQUIRED');
+    const normalizedReason = reason.trim();
+    if (normalizedReason.length < 2 || normalizedReason.length > 1000) throw new Error('VALIDATION_FAILED');
+    const customerId = actorKind === 'customer' && 'customerId' in context ? context.customerId : undefined;
+    const result = await transaction.query<QueryResultRow & { customer_id: string; state: string }>(
+      `select customer_id, state from projects.submitted_requests
+       where id = $1 ${customerId ? 'and customer_id = $2' : ''} for update`,
+      customerId ? [requestId, customerId] : [requestId],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('REQUEST_NOT_FOUND');
+    if (['CANCELLED', 'REJECTED', 'COMPLETED'].includes(row.state)) throw new Error('REQUEST_NOT_CANCELLABLE');
+    await transaction.query(
+      `update projects.submitted_requests
+       set state = 'CANCELLED', cancelled_at = clock_timestamp(), cancelled_by = $2,
+           cancellation_reason = $3, record_version = record_version + 1
+       where id = $1`,
+      [requestId, actorKind.toUpperCase(), normalizedReason],
+    );
+    await this.recordActivity(transaction, requestId, 'REQUEST_CANCELLED', row.state, 'CANCELLED', normalizedReason);
+  }
+
+  async archiveRequest(transaction: ActorScopedTransaction, requestId: string): Promise<void> {
+    const actor = customerActor(transaction);
+    const result = await transaction.query(
+      `update projects.submitted_requests set archived_at = clock_timestamp()
+       where id = $1 and customer_id = $2 and state in ('CANCELLED','REJECTED','COMPLETED','QUOTED')`,
+      [requestId, actor.customerId],
+    );
+    if (result.rowCount === 0) throw new Error('REQUEST_NOT_ARCHIVABLE');
+    await this.recordActivity(transaction, requestId, 'REQUEST_ARCHIVED', undefined, undefined, 'نُقل الطلب إلى السجل.');
+  }
+
+  async recordActivity(
+    transaction: ActorScopedTransaction,
+    requestId: string,
+    eventType: string,
+    fromState?: string,
+    toState?: string,
+    noteAr = '',
+  ): Promise<void> {
+    const actor = transaction.actorContext.actor;
+    const actorKind = actor.kind === 'manager' ? 'MANAGER' : actor.kind === 'customer' ? 'CUSTOMER' : 'SYSTEM';
+    const actorPrincipalId = 'principalId' in actor ? actor.principalId : null;
+    await transaction.query(
+      `insert into projects.request_activity
+         (request_id, actor_principal_id, actor_kind, event_type, from_state, to_state, note_ar)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
+      [requestId, actorPrincipalId, actorKind, eventType, fromState ?? null, toState ?? null, noteAr],
+    );
+  }
 }
+
