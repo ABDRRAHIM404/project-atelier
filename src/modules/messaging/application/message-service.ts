@@ -24,6 +24,17 @@ export type ConversationMessage = Readonly<{
   sentAt: string;
 }>;
 
+export type ConversationSummary = Readonly<{
+  customerCity?: string | undefined;
+  customerId: string;
+  customerLabel: string;
+  customerPhone?: string | undefined;
+  lastMessageAt: string;
+  lastMessageBody: string;
+  lastSenderKind: 'CUSTOMER' | 'MANAGER';
+  messageCount: number;
+}>;
+
 export class MessageService {
   async send(
     transaction: ActorScopedTransaction,
@@ -101,6 +112,66 @@ export class MessageService {
       ],
     );
     return Object.freeze({ messageId });
+  }
+
+
+  async listConversations(
+    transaction: ActorScopedTransaction,
+  ): Promise<readonly ConversationSummary[]> {
+    if (transaction.actorContext.actor.kind !== 'manager') {
+      throw new Error('MANAGER_AUTHENTICATION_REQUIRED');
+    }
+    const result = await transaction.query<
+      QueryResultRow & {
+        customer_city: string | null;
+        customer_id: string;
+        customer_label: string;
+        customer_phone: string | null;
+        last_message_at: Date;
+        last_message_body: string;
+        last_sender_kind: 'CUSTOMER' | 'MANAGER';
+        message_count: string;
+      }
+    >(
+      `select c.customer_id,
+              coalesce(nullif(trim(customer.full_name), ''), customer.contact_email,
+                       customer.verified_email_snapshot, 'عميل') as customer_label,
+              customer.phone_number as customer_phone,
+              customer.city as customer_city,
+              latest.body as last_message_body,
+              latest.sender_kind as last_sender_kind,
+              latest.sent_at as last_message_at,
+              counts.message_count
+       from messaging.conversations c
+       join iam.customers customer on customer.id = c.customer_id
+       join lateral (
+         select m.body, m.sender_kind, m.sent_at
+         from messaging.messages m
+         where m.conversation_id = c.id
+         order by m.sent_at desc, m.id desc
+         limit 1
+       ) latest on true
+       join lateral (
+         select count(*)::text as message_count
+         from messaging.messages m
+         where m.conversation_id = c.id
+       ) counts on true
+       order by latest.sent_at desc, c.customer_id`,
+    );
+    return Object.freeze(
+      result.rows.map((row) =>
+        Object.freeze({
+          customerCity: row.customer_city ?? undefined,
+          customerId: row.customer_id,
+          customerLabel: row.customer_label,
+          customerPhone: row.customer_phone ?? undefined,
+          lastMessageAt: row.last_message_at.toISOString(),
+          lastMessageBody: row.last_message_body,
+          lastSenderKind: row.last_sender_kind,
+          messageCount: Number(row.message_count),
+        }),
+      ),
+    );
   }
 
   async list(

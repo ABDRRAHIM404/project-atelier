@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { apiRequest, formatDate, formatMoney, stateLabel } from './client-api';
+import { ConversationChat } from './conversation-chat';
 import { DemoRoleSwitch } from './demo-role-switch';
 
 type Product = Readonly<{
@@ -17,6 +18,7 @@ type Product = Readonly<{
 }>;
 
 type RequestSummary = Readonly<{
+  archivedAt?: string;
   cancelledAt?: string;
   cancellationReason?: string;
   displayReference: string;
@@ -37,6 +39,9 @@ type CustomerProfile = Readonly<{
 
 type Quotation = Readonly<{
   currencyCode: string;
+  requestDisplayReference: string;
+  requestId: string;
+  requestName: string;
   id: string;
   productionEstimateText: string;
   revisionId: string;
@@ -46,6 +51,9 @@ type Quotation = Readonly<{
 }>;
 
 type Order = Readonly<{
+  archivedAt?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
   createdAt: string;
   currencyCode: string;
   displayReference: string;
@@ -55,6 +63,9 @@ type Order = Readonly<{
   lifecycleState: string;
   paymentState: string;
   productionState: string;
+  requestDisplayReference: string;
+  requestId: string;
+  requestName: string;
   totalMinor: number;
 }>;
 
@@ -103,7 +114,7 @@ type Message = Readonly<{
   sentAt: string;
 }>;
 
-type CustomerTab = 'requests' | 'orders' | 'messages' | 'history' | 'notifications';
+type CustomerTab = 'requests' | 'orders' | 'messages' | 'notifications';
 
 type CustomerDashboardProps = Readonly<{
   demoEnabled: boolean;
@@ -191,7 +202,9 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       } else if (!initialTabChosen.current) {
         initialTabChosen.current = true;
         setActiveTab(
-          orderResult.orders.length > 0 ? 'orders' : 'requests',
+          requestResult.requests.length > 0 || quotationResult.quotations.length > 0 || orderResult.orders.length > 0
+            ? 'orders'
+            : 'requests',
         );
       }
     } catch (caught) {
@@ -203,6 +216,27 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     const timer = window.setTimeout(() => void refresh(), 0);
     return () => window.clearTimeout(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    if (activeTab !== 'messages') return;
+    let disposed = false;
+
+    const syncMessages = async () => {
+      try {
+        const result = await apiRequest<{ messages: readonly Message[] }>('/api/v1/messages');
+        if (!disposed) setMessages(result.messages);
+      } catch {
+        // Keep the current conversation visible when a background refresh fails.
+      }
+    };
+
+    void syncMessages();
+    const timer = window.setInterval(() => void syncMessages(), 10_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [activeTab]);
 
   useEffect(() => {
     if (!notice) return;
@@ -362,7 +396,10 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    await perform(async () => {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
       await apiRequest('/api/v1/messages', {
         body: JSON.stringify({
           body: formText(form, 'body'),
@@ -370,8 +407,15 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         }),
         method: 'POST',
       });
+      const result = await apiRequest<{ messages: readonly Message[] }>('/api/v1/messages');
+      setMessages(result.messages);
       formElement.reset();
-    }, 'تم إرسال الرسالة.');
+      setNotice('تم إرسال الرسالة.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر إرسال الرسالة.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -409,6 +453,13 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     }, 'تم نقل الطلب إلى السجل.');
   }
 
+  async function archiveOrder(orderId: string) {
+    await perform(async () => {
+      await apiRequest(`/api/v1/orders/${orderId}/archive`, { method: 'POST' });
+      if (orderDetail?.id === orderId) setOrderDetail(undefined);
+    }, 'تم نقل الطلب إلى السجل.');
+  }
+
   async function openNotifications() {
     setActiveTab('notifications');
     const unread = notifications.filter((notification) => !notification.read);
@@ -427,12 +478,54 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
   }
 
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
-  const activeRequestStates = new Set(['SUBMITTED', 'UNDER_REVIEW', 'WAITING_FOR_CUSTOMER_INFORMATION', 'READY_FOR_QUOTATION', 'QUOTED']);
-  const filteredRequests = requests.filter((request) => {
-    if (requestFilter === 'ACTIVE') return activeRequestStates.has(request.state);
-    if (requestFilter === 'CANCELLED') return request.state === 'CANCELLED';
-    return ['REJECTED', 'COMPLETED'].includes(request.state);
+  const activeRequestStates = new Set([
+    'SUBMITTED',
+    'UNDER_REVIEW',
+    'WAITING_FOR_CUSTOMER_INFORMATION',
+    'READY_FOR_QUOTATION',
+  ]);
+  const orderRequestIds = new Set(orders.map((order) => order.requestId));
+  const quotationRequestIds = new Set(quotations.map((quotation) => quotation.requestId));
+  const requestById = new Map(requests.map((request) => [request.id, request] as const));
+  const journeyQuotations = quotations.filter(
+    (quotation) => requestById.get(quotation.requestId)?.state !== 'CANCELLED',
+  );
+  const standaloneRequests = requests.filter((request) => {
+    if (orderRequestIds.has(request.id)) return false;
+    if (request.state === 'CANCELLED') return true;
+    return !quotationRequestIds.has(request.id);
   });
+  const filteredRequests = standaloneRequests.filter((request) => {
+    if (requestFilter === 'ACTIVE') {
+      return !request.archivedAt && activeRequestStates.has(request.state);
+    }
+    if (requestFilter === 'CANCELLED') {
+      return !request.archivedAt && request.state === 'CANCELLED';
+    }
+    return Boolean(request.archivedAt) || ['REJECTED', 'COMPLETED'].includes(request.state);
+  });
+  const filteredQuotations = journeyQuotations.filter((quotation) => {
+    if (requestFilter === 'ACTIVE') return quotation.state === 'SENT';
+    if (requestFilter === 'CANCELLED') return false;
+    return quotation.state === 'DECLINED';
+  });
+  const filteredOrders = orders.filter((order) => {
+    if (requestFilter === 'ACTIVE') {
+      return !order.archivedAt && !['CANCELLED', 'COMPLETED'].includes(order.lifecycleState);
+    }
+    if (requestFilter === 'CANCELLED') {
+      return !order.archivedAt && order.lifecycleState === 'CANCELLED';
+    }
+    return Boolean(order.archivedAt) || order.lifecycleState === 'COMPLETED';
+  });
+  const activeJourneyCount =
+    standaloneRequests.filter(
+      (request) => !request.archivedAt && activeRequestStates.has(request.state),
+    ).length +
+    journeyQuotations.filter((quotation) => quotation.state === 'SENT').length +
+    orders.filter(
+      (order) => !order.archivedAt && !['CANCELLED', 'COMPLETED'].includes(order.lifecycleState),
+    ).length;
   const selectedProduct = products.find((product) => product.id === selectedProductId);
   const normalizedProductSearch = productSearch.trim().toLocaleLowerCase('ar');
   const filteredProducts = products
@@ -456,7 +549,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         <div>
           <p className="eyebrow">مساحة العميل</p>
           <h1>حوّل فكرتك إلى قطعة مصنوعة لك</h1>
-          <p>أنشئ مشروعًا، أضف التصاميم والمقاسات، ثم تابع عرض السعر والتنفيذ من مكان واحد.</p>
+          <p>اختر تصميمًا أو أرسل فكرتك الخاصة، ثم تابع التسعير والدفع والتنفيذ من مكان واحد.</p>
         </div>
         <Link className="button button--secondary" href="/catalog">
           استعراض التصاميم
@@ -510,7 +603,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
             <div>
               <small>اخترته من المعرض</small>
               <strong>{selectedProduct.name}</strong>
-              <span>أضفه إلى مشروع قائم أو أنشئ مشروعًا جديدًا.</span>
+              <span>خصصه كما تريد ثم أرسله مباشرة إلى المدير.</span>
             </div>
           </div>
           <button
@@ -535,17 +628,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           role="tab"
           type="button"
         >
-          الطلبات الجديدة <span className="customer-tab__count">{requests.length}</span>
-        </button>
-        <button
-          aria-controls="customer-panel-history"
-          aria-selected={activeTab === 'history'}
-          className={`customer-tab${activeTab === 'history' ? ' customer-tab--active' : ''}`}
-          onClick={() => setActiveTab('history')}
-          role="tab"
-          type="button"
-        >
-          السجل
+          طلب جديد
         </button>
         <button
           aria-controls="customer-panel-orders"
@@ -555,7 +638,10 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           role="tab"
           type="button"
         >
-          الطلبات <span className="customer-tab__count">{orders.length}</span>
+          طلباتي
+          {activeJourneyCount > 0 ? (
+            <span className="customer-tab__badge">{badgeText(activeJourneyCount)}</span>
+          ) : null}
         </button>
         <button
           aria-controls="customer-panel-messages"
@@ -596,7 +682,6 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
               <p className="eyebrow">طلب تصميم</p>
               <h2 id="requests-title">اختر تصميمًا وأرسله للمدير</h2>
             </div>
-            <span className="count-pill">{requests.length}</span>
           </div>
 
           <form className="workflow-form direct-request-form" onSubmit={submitDirectRequest}>
@@ -701,114 +786,6 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
             </button>
           </form>
 
-          <div className="workflow-stack direct-request-list">
-            <div className="saved-views" aria-label="تصفية الطلبات">
-              <button className={requestFilter === 'ACTIVE' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('ACTIVE')} type="button">النشطة</button>
-              <button className={requestFilter === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('CANCELLED')} type="button">الملغاة</button>
-              <button className={requestFilter === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('HISTORY')} type="button">السجل</button>
-            </div>
-            <h3>طلباتي</h3>
-            {filteredRequests.length === 0 ? (
-              <p className="workspace-empty">لا توجد عناصر في هذا العرض.</p>
-            ) : (
-              filteredRequests.map((request) => (
-                <article className="workflow-card" key={request.id}>
-                  <div className="workflow-card__heading">
-                    <div>
-                      <h3>{request.projectName}</h3>
-                      <span>{request.displayReference} · {formatDate(request.submittedAt)}</span>
-                    </div>
-                    <span className="status-badge">{stateLabel(request.state)}</span>
-                  </div>
-                  <p className="request-type-label">{request.requestType === 'CUSTOM_DESIGN' ? 'تصميم خاص' : 'منتج من الكتالوج'}</p>
-                  {activeRequestStates.has(request.state) ? (
-                    <button
-                      className="plain-button plain-button--danger"
-                      onClick={() => setCancelTarget({ id: request.id, kind: 'REQUEST', title: request.projectName })}
-                      type="button"
-                    >
-                      إلغاء الطلب
-                    </button>
-                  ) : null}
-                  {['CANCELLED', 'REJECTED', 'COMPLETED'].includes(request.state) ? (
-                    <button className="plain-button" disabled={busy} onClick={() => archiveRequest(request.id)} type="button">نقل إلى السجل</button>
-                  ) : null}
-                </article>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section
-          aria-labelledby="quotes-title"
-          className="workspace-panel workspace-panel--full"
-          hidden={activeTab !== 'history'}
-          id="customer-panel-history"
-          role="tabpanel"
-          tabIndex={0}
-        >
-          <div className="workspace-panel__heading">
-            <div>
-              <p className="eyebrow">التسعير</p>
-              <h2 id="quotes-title">السجل وعروض السعر</h2>
-            </div>
-            <span className="count-pill">{quotations.length}</span>
-          </div>
-          <div className="workflow-stack">
-            {quotations.length === 0 ? (
-              <div className="customer-empty-state">
-                <h3>لا يوجد عرض سعر بعد</h3>
-                <p>سيظهر عرض المدير هنا بعد مراجعة مشروعك.</p>
-              </div>
-            ) : (
-              quotations.map((quotation) => (
-                <article className="workflow-card" key={quotation.revisionId}>
-                  <div className="workflow-card__heading">
-                    <div>
-                      <h3>{formatMoney(quotation.totalMinor, quotation.currencyCode)}</h3>
-                      <span>الإصدار {quotation.revisionNumber}</span>
-                    </div>
-                    <span className="status-badge">{stateLabel(quotation.state)}</span>
-                  </div>
-                  <p>{quotation.productionEstimateText}</p>
-                  {quotation.state === 'SENT' ? (
-                    <div className="quotation-actions">
-                      <button
-                        className="button button--small"
-                        disabled={busy}
-                        onClick={() => acceptQuotation(quotation.revisionId)}
-                        type="button"
-                      >
-                        {busy ? 'جاري الاعتماد...' : 'قبول عرض السعر'}
-                      </button>
-                      <details className="quotation-decline">
-                        <summary>رفض عرض السعر</summary>
-                        <form onSubmit={(event) => declineQuotation(event, quotation.revisionId)}>
-                          <label>
-                            سبب الرفض
-                            <textarea
-                              name="reason"
-                              required
-                              minLength={2}
-                              rows={2}
-                              placeholder="السعر، المدة، أو التعديلات المطلوبة"
-                            />
-                          </label>
-                          <button
-                            className="button button--secondary button--small"
-                            disabled={busy}
-                            type="submit"
-                          >
-                            تأكيد الرفض
-                          </button>
-                        </form>
-                      </details>
-                    </div>
-                  ) : null}
-                </article>
-              ))
-            )}
-          </div>
         </section>
 
         <section
@@ -821,61 +798,111 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         >
           <div className="workspace-panel__heading">
             <div>
-              <p className="eyebrow">المتابعة</p>
-              <h2 id="orders-title">الطلبات</h2>
+              <p className="eyebrow">رحلة الطلب</p>
+              <h2 id="orders-title">طلباتي</h2>
+              <p className="field-help">تابع طلب التصميم، عرض السعر، الدفع، الإنتاج والتسليم في مكان واحد.</p>
             </div>
-            <span className="count-pill">{orders.length}</span>
           </div>
-          <div className="workflow-stack">
-            {orders.length === 0 ? (
+
+          <div className="saved-views customer-journey-views" aria-label="تصفية طلباتي">
+            <button className={requestFilter === 'ACTIVE' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('ACTIVE')} type="button">النشطة</button>
+            <button className={requestFilter === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('CANCELLED')} type="button">الملغاة</button>
+            <button className={requestFilter === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestFilter('HISTORY')} type="button">السجل</button>
+          </div>
+
+          <div className="workflow-stack customer-journey-list">
+            {filteredRequests.length + filteredQuotations.length + filteredOrders.length === 0 ? (
               <div className="customer-empty-state">
-                <h3>لا توجد طلبات حالية</h3>
-                <p>بعد اعتماد عرض السعر، ستتابع الدفع والإنتاج والتسليم من هنا.</p>
+                <h3>لا توجد عناصر في هذا العرض</h3>
+                <p>ستظهر هنا طلباتك وعروض السعر والطلبات المؤكدة حسب حالتها.</p>
               </div>
-            ) : (
-              orders.map((order) => (
-                <article className="workflow-card" key={order.id}>
-                  <div className="workflow-card__heading">
-                    <div>
-                      <h3>{order.displayReference}</h3>
-                      <span>{formatMoney(order.totalMinor, order.currencyCode)}</span>
-                    </div>
-                    <span className="status-badge">{stateLabel(order.lifecycleState)}</span>
+            ) : null}
+
+            {filteredRequests.map((request) => (
+              <article className="workflow-card journey-card" key={`request-${request.id}`}>
+                <div className="workflow-card__heading">
+                  <div>
+                    <span className="journey-card__kind">{request.requestType === 'CUSTOM_DESIGN' ? 'تصميم خاص' : 'منتج من الكتالوج'}</span>
+                    <h3>{request.projectName}</h3>
+                    <span>{request.displayReference} · {formatDate(request.submittedAt)}</span>
                   </div>
-                  <div className="status-grid">
-                    <span>
-                      <small>الدفع</small>
-                      {stateLabel(order.paymentState)}
-                    </span>
-                    <span>
-                      <small>الإنتاج</small>
-                      {stateLabel(order.productionState)}
-                    </span>
-                    <span>
-                      <small>التسليم</small>
-                      {stateLabel(order.fulfilmentState)}
-                    </span>
-                  </div>
+                  <span className="status-badge">{stateLabel(request.state)}</span>
+                </div>
+                {request.cancellationReason ? <p className="journey-card__reason">سبب الإلغاء: {request.cancellationReason}</p> : null}
+                {activeRequestStates.has(request.state) ? (
                   <button
-                    className="button button--secondary button--small"
-                    disabled={busy}
-                    onClick={() => openOrder(order.id)}
+                    className="plain-button plain-button--danger"
+                    onClick={() => setCancelTarget({ id: request.id, kind: 'REQUEST', title: request.projectName })}
                     type="button"
                   >
-                    عرض التفاصيل
+                    إلغاء الطلب
                   </button>
-                  {!['COMPLETED', 'CANCELLED'].includes(order.lifecycleState) ? (
-                    <button
-                      className="plain-button plain-button--danger"
-                      onClick={() => setCancelTarget({ id: order.id, kind: 'ORDER', title: order.displayReference })}
-                      type="button"
-                    >
-                      طلب إلغاء
+                ) : null}
+                {!request.archivedAt && ['CANCELLED', 'REJECTED', 'COMPLETED'].includes(request.state) ? (
+                  <button className="plain-button" disabled={busy} onClick={() => archiveRequest(request.id)} type="button">نقل إلى السجل</button>
+                ) : null}
+              </article>
+            ))}
+
+            {filteredQuotations.map((quotation) => (
+              <article className="workflow-card journey-card journey-card--quotation" key={`quotation-${quotation.revisionId}`}>
+                <div className="workflow-card__heading">
+                  <div>
+                    <span className="journey-card__kind">عرض سعر</span>
+                    <h3>{quotation.requestName}</h3>
+                    <span>{quotation.requestDisplayReference} · الإصدار {quotation.revisionNumber}</span>
+                  </div>
+                  <span className="status-badge">{stateLabel(quotation.state)}</span>
+                </div>
+                <strong className="journey-card__price">{formatMoney(quotation.totalMinor, quotation.currencyCode)}</strong>
+                <p>{quotation.productionEstimateText}</p>
+                {quotation.state === 'SENT' ? (
+                  <div className="quotation-actions">
+                    <button className="button button--small" disabled={busy} onClick={() => acceptQuotation(quotation.revisionId)} type="button">
+                      {busy ? 'جاري الاعتماد...' : 'قبول عرض السعر'}
                     </button>
+                    <details className="quotation-decline">
+                      <summary>رفض عرض السعر</summary>
+                      <form onSubmit={(event) => declineQuotation(event, quotation.revisionId)}>
+                        <label>
+                          سبب الرفض
+                          <textarea name="reason" required minLength={2} rows={2} placeholder="السعر، المدة، أو التعديلات المطلوبة" />
+                        </label>
+                        <button className="button button--secondary button--small" disabled={busy} type="submit">تأكيد الرفض</button>
+                      </form>
+                    </details>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+
+            {filteredOrders.map((order) => (
+              <article className="workflow-card journey-card journey-card--order" key={`order-${order.id}`}>
+                <div className="workflow-card__heading">
+                  <div>
+                    <span className="journey-card__kind">طلب مؤكد</span>
+                    <h3>{order.requestName}</h3>
+                    <span>{order.displayReference} · {formatMoney(order.totalMinor, order.currencyCode)}</span>
+                  </div>
+                  <span className="status-badge">{stateLabel(order.lifecycleState)}</span>
+                </div>
+                <div className="status-grid">
+                  <span><small>الدفع</small>{stateLabel(order.paymentState)}</span>
+                  <span><small>الإنتاج</small>{stateLabel(order.productionState)}</span>
+                  <span><small>التسليم</small>{stateLabel(order.fulfilmentState)}</span>
+                </div>
+                {order.cancellationReason ? <p className="journey-card__reason">سبب الإلغاء: {order.cancellationReason}</p> : null}
+                <div className="journey-card__actions">
+                  <button className="button button--secondary button--small" disabled={busy} onClick={() => openOrder(order.id)} type="button">عرض التفاصيل</button>
+                  {!['COMPLETED', 'CANCELLED'].includes(order.lifecycleState) ? (
+                    <button className="plain-button plain-button--danger" onClick={() => setCancelTarget({ id: order.id, kind: 'ORDER', title: order.displayReference })} type="button">طلب إلغاء</button>
                   ) : null}
-                </article>
-              ))
-            )}
+                  {!order.archivedAt && ['COMPLETED', 'CANCELLED'].includes(order.lifecycleState) ? (
+                    <button className="plain-button" disabled={busy} onClick={() => archiveOrder(order.id)} type="button">نقل إلى السجل</button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
           </div>
 
           {orderDetail ? (
@@ -903,7 +930,12 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   </div>
                 ))}
               </div>
-              {!orderDetail.fulfilmentDetailsConfirmedAt ? (
+              {orderDetail.lifecycleState === 'CANCELLED' ? (
+                <div className="decision-box decision-box--cancelled" role="status">
+                  <strong>تم إلغاء هذا الطلب</strong>
+                  <span>{orderDetail.cancellationReason ?? 'تم حفظه ضمن الطلبات الملغاة.'}</span>
+                </div>
+              ) : !orderDetail.fulfilmentDetailsConfirmedAt ? (
                 <form
                   className="workflow-form"
                   onSubmit={(event) => saveFulfilmentDetails(event, orderDetail.id)}
@@ -1011,7 +1043,8 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   </dl>
                 </section>
               ) : null}
-              {orderDetail.fulfilmentDetailsConfirmedAt &&
+              {orderDetail.lifecycleState !== 'CANCELLED' &&
+              orderDetail.fulfilmentDetailsConfirmedAt &&
               ['AWAITING_SUBMISSION', 'REJECTED'].includes(orderDetail.paymentState) ? (
                 <form
                   className="workflow-form"
@@ -1107,31 +1140,15 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
               <h2 id="messages-title">الرسائل</h2>
             </div>
           </div>
-          <div className="message-list">
-            {messages.length === 0 ? (
-              <p className="workspace-empty">ابدأ برسالة توضح ما تحتاجه.</p>
-            ) : (
-              messages.map((message) => (
-                <div
-                  className={`message message--${message.senderKind.toLowerCase()}`}
-                  key={message.id}
-                >
-                  <strong>{message.senderKind === 'CUSTOMER' ? 'أنت' : 'المدير'}</strong>
-                  <p>{message.body}</p>
-                  <small>{formatDate(message.sentAt)}</small>
-                </div>
-              ))
-            )}
-          </div>
-          <form className="workflow-form" onSubmit={sendMessage}>
-            <label>
-              رسالتك
-              <textarea name="body" required rows={3} />
-            </label>
-            <button className="button button--small" disabled={busy} type="submit">
-              إرسال
-            </button>
-          </form>
+          <ConversationChat
+            busy={busy}
+            currentActor="CUSTOMER"
+            emptyText="ابدأ برسالة توضح ما تحتاجه، وسيظهر رد المدير هنا."
+            messages={messages}
+            onSubmit={sendMessage}
+            subtitle="فريق بيتي بذوقي"
+            title="خدمة العملاء"
+          />
         </section>
 
         <section

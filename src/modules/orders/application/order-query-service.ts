@@ -9,6 +9,9 @@ function requireActor(transaction: ActorScopedTransaction): 'customer' | 'manage
 }
 
 export type OrderSummary = Readonly<{
+  archivedAt?: string | undefined;
+  cancelledAt?: string | undefined;
+  cancellationReason?: string | undefined;
   createdAt: string;
   currencyCode: string;
   displayReference: string;
@@ -18,6 +21,9 @@ export type OrderSummary = Readonly<{
   lifecycleState: string;
   paymentState: string;
   productionState: string;
+  requestDisplayReference: string;
+  requestId: string;
+  requestName: string;
   totalMinor: number;
 }>;
 
@@ -57,6 +63,9 @@ export class OrderQueryService {
     const result = await transaction.query<
       QueryResultRow & {
         accepted_method: 'DELIVERY' | 'PICKUP';
+        archived_at: Date | null;
+        cancelled_at: Date | null;
+        cancellation_reason: string | null;
         accepted_total_minor: string;
         created_at: Date;
         currency_code: string;
@@ -66,23 +75,35 @@ export class OrderQueryService {
         lifecycle_state: string;
         payment_state: string;
         production_state: string;
+        request_display_reference: string;
+        request_id: string;
+        request_name: string;
       }
     >(
       `select o.id, o.display_reference, o.lifecycle_state, o.currency_code,
-              o.accepted_total_minor, o.created_at,
+              o.accepted_total_minor, o.created_at, o.archived_at, o.cancelled_at,
+              o.cancellation_reason,
               p.current_state as payment_state,
               pr.current_state as production_state,
               f.state as fulfilment_state,
-              f.accepted_method
+              f.accepted_method, sr.id as request_id,
+              sr.display_reference as request_display_reference,
+              regexp_replace(sr.project_name_snapshot, '^طلب\\s+', '') as request_name
        from orders.orders o
        join payments.order_payment_status p on p.order_id = o.id
        join production.order_production pr on pr.order_id = o.id
        join fulfilment.fulfilments f on f.order_id = o.id
+       join quotes.quotation_revisions qr on qr.id = o.accepted_revision_id
+       join quotes.quotations q on q.id = qr.quotation_id
+       join projects.submitted_requests sr on sr.id = q.submitted_request_id
        order by o.created_at desc`,
     );
     return Object.freeze(
       result.rows.map((row) =>
         Object.freeze({
+          archivedAt: row.archived_at?.toISOString(),
+          cancelledAt: row.cancelled_at?.toISOString(),
+          cancellationReason: row.cancellation_reason ?? undefined,
           createdAt: row.created_at.toISOString(),
           currencyCode: row.currency_code,
           displayReference: row.display_reference,
@@ -92,6 +113,9 @@ export class OrderQueryService {
           lifecycleState: row.lifecycle_state,
           paymentState: row.payment_state,
           productionState: row.production_state,
+          requestDisplayReference: row.request_display_reference,
+          requestId: row.request_id,
+          requestName: row.request_name,
           totalMinor: Number(row.accepted_total_minor),
         }),
       ),

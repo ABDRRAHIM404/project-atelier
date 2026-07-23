@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { apiRequest, formatDate, formatMoney, stateLabel } from './client-api';
+import { ConversationChat } from './conversation-chat';
 import { DemoRoleSwitch } from './demo-role-switch';
 
 type RequestSummary = Readonly<{
+  archivedAt?: string;
   cancelledAt?: string;
   cancellationReason?: string;
   customerCity?: string;
@@ -38,6 +40,9 @@ type RequestDetail = RequestSummary &
   }>;
 
 type Order = Readonly<{
+  archivedAt?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
   createdAt: string;
   currencyCode: string;
   displayReference: string;
@@ -47,6 +52,9 @@ type Order = Readonly<{
   lifecycleState: string;
   paymentState: string;
   productionState: string;
+  requestDisplayReference: string;
+  requestId: string;
+  requestName: string;
   totalMinor: number;
 }>;
 
@@ -84,6 +92,18 @@ type Message = Readonly<{
   id: string;
   senderKind: 'CUSTOMER' | 'MANAGER';
   sentAt: string;
+}>;
+
+
+type ConversationSummary = Readonly<{
+  customerCity?: string;
+  customerId: string;
+  customerLabel: string;
+  customerPhone?: string;
+  lastMessageAt: string;
+  lastMessageBody: string;
+  lastSenderKind: 'CUSTOMER' | 'MANAGER';
+  messageCount: number;
 }>;
 
 type Notification = Readonly<{
@@ -174,6 +194,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [requestDetail, setRequestDetail] = useState<RequestDetail>();
   const [orderDetail, setOrderDetail] = useState<OrderDetail>();
   const [messages, setMessages] = useState<readonly Message[]>([]);
+  const [conversations, setConversations] = useState<readonly ConversationSummary[]>([]);
   const [messageCustomerId, setMessageCustomerId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -183,6 +204,8 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [managedProductId, setManagedProductId] = useState<string>();
   const [requestSearch, setRequestSearch] = useState('');
   const [requestView, setRequestView] = useState<'ACTION' | 'WAITING' | 'CANCELLED' | 'HISTORY'>('ACTION');
+  const [orderView, setOrderView] = useState<'ACTIVE' | 'CANCELLED' | 'HISTORY'>('ACTIVE');
+  const [conversationSearch, setConversationSearch] = useState('');
   const [cancelTarget, setCancelTarget] = useState<{ id: string; kind: 'ORDER' | 'REQUEST'; title: string }>();
   const requestDetailRef = useRef<HTMLElement>(null);
   const initialTabChosen = useRef(false);
@@ -196,25 +219,38 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           method: 'POST',
         });
       }
-      const [requestResult, orderResult, notificationResult, catalogResult] = await Promise.all([
+      const [requestResult, orderResult, notificationResult, catalogResult, conversationResult] = await Promise.all([
         apiRequest<{ requests: readonly RequestSummary[] }>('/api/v1/manager/requests'),
         apiRequest<{ orders: readonly Order[] }>('/api/v1/orders'),
         apiRequest<{ notifications: readonly Notification[] }>('/api/v1/notifications'),
         apiRequest<{ products: readonly CatalogProduct[] }>('/api/v1/manager/catalog/products'),
+        apiRequest<{ conversations: readonly ConversationSummary[] }>('/api/v1/messages?view=conversations'),
       ]);
       setRequests(requestResult.requests);
       setOrders(orderResult.orders);
       setNotifications(notificationResult.notifications);
       setCatalogProducts(catalogResult.products);
+      setConversations(conversationResult.conversations);
       if (!initialTabChosen.current) {
         initialTabChosen.current = true;
-        setActiveTab(
-          requestResult.requests.length > 0
-            ? 'requests'
-            : orderResult.orders.length > 0
-              ? 'orders'
-              : 'catalog',
+        const requestIdsWithOrders = new Set(orderResult.orders.map((order) => order.requestId));
+        const hasOpenRequests = requestResult.requests.some(
+          (request) =>
+            !requestIdsWithOrders.has(request.id) &&
+            !request.archivedAt &&
+            [
+              'SUBMITTED',
+              'UNDER_REVIEW',
+              'WAITING_FOR_CUSTOMER_INFORMATION',
+              'READY_FOR_QUOTATION',
+              'QUOTED',
+            ].includes(request.state),
         );
+        const hasActiveOrders = orderResult.orders.some(
+          (order) =>
+            !order.archivedAt && !['CANCELLED', 'COMPLETED'].includes(order.lifecycleState),
+        );
+        setActiveTab(hasOpenRequests ? 'requests' : hasActiveOrders ? 'orders' : 'catalog');
       }
       const imageEntries = await Promise.all(
         catalogResult.products.map(async (product) => {
@@ -238,6 +274,36 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     const timer = window.setTimeout(() => void refresh(), 0);
     return () => window.clearTimeout(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    if (activeTab !== 'messages') return;
+    let disposed = false;
+
+    const syncMessages = async () => {
+      try {
+        const conversationResult = await apiRequest<{
+          conversations: readonly ConversationSummary[];
+        }>('/api/v1/messages?view=conversations');
+        if (!disposed) setConversations(conversationResult.conversations);
+
+        if (messageCustomerId) {
+          const messageResult = await apiRequest<{ messages: readonly Message[] }>(
+            `/api/v1/messages?customerId=${encodeURIComponent(messageCustomerId)}`,
+          );
+          if (!disposed) setMessages(messageResult.messages);
+        }
+      } catch {
+        // Keep the current inbox visible when a background refresh fails.
+      }
+    };
+
+    void syncMessages();
+    const timer = window.setInterval(() => void syncMessages(), 10_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [activeTab, messageCustomerId]);
 
   useEffect(() => {
     if (!notice) return;
@@ -516,27 +582,59 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     }, 'تم تسجيل التسليم وإكمال الطلب.');
   }
 
+  async function openConversation(customerId: string) {
+    setActiveTab('messages');
+    setMessageCustomerId(customerId);
+    setBusy(true);
+    setError('');
+    try {
+      const result = await apiRequest<{ messages: readonly Message[] }>(
+        `/api/v1/messages?customerId=${encodeURIComponent(customerId)}`,
+      );
+      setMessages(result.messages);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر فتح المحادثة.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!messageCustomerId) return;
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    await perform(async () => {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
       await apiRequest('/api/v1/messages', {
         body: JSON.stringify({
           body: formText(form, 'body'),
           clientMessageKey: crypto.randomUUID(),
           customerId: messageCustomerId,
-          projectId: requestDetail?.projectId,
+          projectId:
+            requestDetail?.customerId === messageCustomerId ? requestDetail.projectId : undefined,
         }),
         method: 'POST',
       });
-      const result = await apiRequest<{ messages: readonly Message[] }>(
-        `/api/v1/messages?customerId=${encodeURIComponent(messageCustomerId)}`,
-      );
-      setMessages(result.messages);
+      const [messageResult, conversationResult] = await Promise.all([
+        apiRequest<{ messages: readonly Message[] }>(
+          `/api/v1/messages?customerId=${encodeURIComponent(messageCustomerId)}`,
+        ),
+        apiRequest<{ conversations: readonly ConversationSummary[] }>(
+          '/api/v1/messages?view=conversations',
+        ),
+      ]);
+      setMessages(messageResult.messages);
+      setConversations(conversationResult.conversations);
       formElement.reset();
-    }, 'تم إرسال الرسالة للعميل.');
+      setNotice('تم إرسال الرسالة للعميل.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'تعذر إرسال الرسالة.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function cancelManagerOrder(event: FormEvent<HTMLFormElement>, orderId: string) {
@@ -550,6 +648,13 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
       setOrderDetail(undefined);
       setCancelTarget(undefined);
     }, 'تم إلغاء الطلب وتسجيل السبب.');
+  }
+
+  async function archiveManagerOrder(orderId: string) {
+    await perform(async () => {
+      await apiRequest(`/api/v1/orders/${orderId}/archive`, { method: 'POST' });
+      if (orderDetail?.id === orderId) setOrderDetail(undefined);
+    }, 'تم نقل الطلب إلى السجل.');
   }
 
   async function cancelManagerRequest(event: FormEvent<HTMLFormElement>, requestId: string) {
@@ -593,22 +698,56 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     PUBLISHED: catalogProducts.filter((product) => product.lifecycle === 'PUBLISHED').length,
   } as const;
 
+  const actionableRequestStates = ['SUBMITTED', 'UNDER_REVIEW', 'READY_FOR_QUOTATION'];
+  const orderRequestIds = new Set(orders.map((order) => order.requestId));
+  const inboxSourceRequests = requests.filter((request) => !orderRequestIds.has(request.id));
+  const actionableRequestCount = inboxSourceRequests.filter(
+    (request) => !request.archivedAt && actionableRequestStates.includes(request.state),
+  ).length;
+  const activeOrders = orders.filter(
+    (order) => !order.archivedAt && !['CANCELLED', 'COMPLETED'].includes(order.lifecycleState),
+  );
+  const cancelledOrders = orders.filter(
+    (order) => !order.archivedAt && order.lifecycleState === 'CANCELLED',
+  );
+  const historicalOrders = orders.filter(
+    (order) => Boolean(order.archivedAt) || order.lifecycleState === 'COMPLETED',
+  );
+  const visibleOrders =
+    orderView === 'ACTIVE'
+      ? activeOrders
+      : orderView === 'CANCELLED'
+        ? cancelledOrders
+        : historicalOrders;
   const normalizedRequestSearch = requestSearch.trim().toLocaleLowerCase('ar');
-  const inboxRequests = requests.filter((request) => {
+  const inboxRequests = inboxSourceRequests.filter((request) => {
     const matchesSearch = !normalizedRequestSearch ||
       `${request.customerLabel} ${request.customerPhone ?? ''} ${request.displayReference} ${request.projectName}`
         .toLocaleLowerCase('ar')
         .includes(normalizedRequestSearch);
     if (!matchesSearch) return false;
-    if (requestView === 'ACTION') return ['SUBMITTED', 'UNDER_REVIEW', 'READY_FOR_QUOTATION'].includes(request.state);
-    if (requestView === 'WAITING') return ['WAITING_FOR_CUSTOMER_INFORMATION', 'QUOTED'].includes(request.state);
-    if (requestView === 'CANCELLED') return request.state === 'CANCELLED';
-    return ['REJECTED', 'COMPLETED'].includes(request.state);
+    if (requestView === 'ACTION') return !request.archivedAt && actionableRequestStates.includes(request.state);
+    if (requestView === 'WAITING') return !request.archivedAt && ['WAITING_FOR_CUSTOMER_INFORMATION', 'QUOTED'].includes(request.state);
+    if (requestView === 'CANCELLED') return !request.archivedAt && request.state === 'CANCELLED';
+    return Boolean(request.archivedAt) || ['REJECTED', 'COMPLETED'].includes(request.state);
   });
+  const normalizedConversationSearch = conversationSearch.trim().toLocaleLowerCase('ar');
+  const visibleConversations = conversations.filter((conversation) =>
+    normalizedConversationSearch
+      ? `${conversation.customerLabel} ${conversation.customerPhone ?? ''} ${conversation.customerCity ?? ''} ${conversation.lastMessageBody}`
+          .toLocaleLowerCase('ar')
+          .includes(normalizedConversationSearch)
+      : true,
+  );
+  const selectedConversation = conversations.find(
+    (conversation) => conversation.customerId === messageCustomerId,
+  );
 
   const latestSubmission = orderDetail?.paymentSubmissions.at(-1);
+  const orderDetailIsActive =
+    orderDetail && !['CANCELLED', 'COMPLETED'].includes(orderDetail.lifecycleState);
   const nextState =
-    orderDetail &&
+    orderDetailIsActive &&
     (orderDetail.paymentState === 'VERIFIED' || orderDetail.productionState !== 'NOT_STARTED')
       ? nextProductionState[orderDetail.productionState]
       : undefined;
@@ -667,8 +806,8 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           type="button"
         >
           صندوق العمل
-          {requests.length > 0 ? (
-            <span className="manager-tab__badge">{badgeText(requests.length)}</span>
+          {actionableRequestCount > 0 ? (
+            <span className="manager-tab__badge">{badgeText(actionableRequestCount)}</span>
           ) : null}
         </button>
         <button
@@ -680,9 +819,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           role="tab"
           type="button"
         >
-          الطلبات الجارية
-          {orders.length > 0 ? (
-            <span className="manager-tab__badge">{badgeText(orders.length)}</span>
+          الطلبات
+          {activeOrders.length > 0 ? (
+            <span className="manager-tab__badge">{badgeText(activeOrders.length)}</span>
           ) : null}
         </button>
         <button
@@ -1040,10 +1179,37 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               <p className="eyebrow">صندوق العمل</p>
               <h2 id="manager-requests-title">ما يحتاج إلى انتباهك</h2>
             </div>
-            <span className="count-pill">{requests.length}</span>
+            {inboxRequests.length > 0 ? <span className="count-pill">{inboxRequests.length}</span> : null}
           </div>
           <div className="manager-inbox-controls">
-            <label className="manager-inbox-search">بحث<input type="search" value={requestSearch} onChange={(event) => setRequestSearch(event.currentTarget.value)} placeholder="العميل، الهاتف، المرجع..." /></label>
+            <label className="manager-inbox-search" htmlFor="manager-request-search">
+              <span className="sr-only">ابحث في صندوق العمل</span>
+              <span className="manager-inbox-search__control">
+                <span className="manager-inbox-search__icon-wrap" aria-hidden="true">
+                  <svg className="manager-inbox-search__icon" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-4-4" />
+                  </svg>
+                </span>
+                <input
+                  id="manager-request-search"
+                  type="search"
+                  value={requestSearch}
+                  onChange={(event) => setRequestSearch(event.currentTarget.value)}
+                  placeholder="ابحث بالاسم أو الهاتف أو رقم الطلب"
+                />
+                {requestSearch ? (
+                  <button
+                    aria-label="مسح البحث"
+                    className="manager-inbox-search__clear"
+                    onClick={() => setRequestSearch('')}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </span>
+            </label>
             <div className="saved-views">
               <button className={requestView === 'ACTION' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('ACTION')} type="button">يحتاج إجراء</button>
               <button className={requestView === 'WAITING' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('WAITING')} type="button">بانتظار العميل</button>
@@ -1088,21 +1254,50 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         >
           <div className="workspace-panel__heading">
             <div>
-              <p className="eyebrow">التنفيذ</p>
-              <h2 id="manager-orders-title">الطلبات الجارية</h2>
+              <p className="eyebrow">التنفيذ والسجل</p>
+              <h2 id="manager-orders-title">الطلبات</h2>
             </div>
-            <span className="count-pill">{orders.length}</span>
+            {visibleOrders.length > 0 ? <span className="count-pill">{visibleOrders.length}</span> : null}
+          </div>
+          <div className="saved-views manager-order-views" aria-label="تصفية الطلبات">
+            <button
+              className={orderView === 'ACTIVE' ? 'saved-view saved-view--active' : 'saved-view'}
+              onClick={() => setOrderView('ACTIVE')}
+              type="button"
+            >
+              الجارية
+            </button>
+            <button
+              className={orderView === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'}
+              onClick={() => setOrderView('CANCELLED')}
+              type="button"
+            >
+              الملغاة
+            </button>
+            <button
+              className={orderView === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'}
+              onClick={() => setOrderView('HISTORY')}
+              type="button"
+            >
+              السجل
+            </button>
           </div>
           <div className="workflow-stack">
-            {orders.length === 0 ? (
-              <p className="workspace-empty">لا توجد طلبات معتمدة.</p>
+            {visibleOrders.length === 0 ? (
+              <p className="workspace-empty">
+                {orderView === 'ACTIVE'
+                  ? 'لا توجد طلبات جارية.'
+                  : orderView === 'CANCELLED'
+                    ? 'لا توجد طلبات ملغاة.'
+                    : 'لا توجد طلبات في السجل.'}
+              </p>
             ) : (
-              orders.map((order) => (
+              visibleOrders.map((order) => (
                 <article className="workflow-card" key={order.id}>
                   <div className="workflow-card__heading">
                     <div>
-                      <h3>{order.displayReference}</h3>
-                      <span>{formatMoney(order.totalMinor, order.currencyCode)}</span>
+                      <h3>{order.requestName}</h3>
+                      <span>{order.displayReference} · {formatMoney(order.totalMinor, order.currencyCode)}</span>
                     </div>
                     <span className="status-badge">{stateLabel(order.lifecycleState)}</span>
                   </div>
@@ -1120,17 +1315,44 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                       {stateLabel(order.fulfilmentState)}
                     </span>
                   </div>
-                  <button
-                    className="button button--secondary button--small"
-                    disabled={busy}
-                    onClick={() => openOrder(order.id)}
-                    type="button"
-                  >
-                    إدارة الطلب
-                  </button>
-                  {!['COMPLETED', 'CANCELLED'].includes(order.lifecycleState) ? (
-                    <button className="plain-button plain-button--danger" onClick={() => setCancelTarget({ id: order.id, kind: 'ORDER', title: order.displayReference })} type="button">إلغاء الطلب</button>
+                  {order.cancellationReason ? (
+                    <p className="journey-card__reason">سبب الإلغاء: {order.cancellationReason}</p>
                   ) : null}
+                  <div className="journey-card__actions">
+                    <button
+                      className="button button--secondary button--small"
+                      disabled={busy}
+                      onClick={() => openOrder(order.id)}
+                      type="button"
+                    >
+                      عرض التفاصيل
+                    </button>
+                    {orderView === 'ACTIVE' ? (
+                      <button
+                        className="plain-button plain-button--danger"
+                        onClick={() =>
+                          setCancelTarget({
+                            id: order.id,
+                            kind: 'ORDER',
+                            title: order.displayReference,
+                          })
+                        }
+                        type="button"
+                      >
+                        إلغاء الطلب
+                      </button>
+                    ) : null}
+                    {orderView === 'CANCELLED' ? (
+                      <button
+                        className="plain-button"
+                        disabled={busy}
+                        onClick={() => void archiveManagerOrder(order.id)}
+                        type="button"
+                      >
+                        نقل إلى السجل
+                      </button>
+                    ) : null}
+                  </div>
                 </article>
               ))
             )}
@@ -1300,6 +1522,13 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               </span>
             </div>
 
+            {orderDetail.lifecycleState === 'CANCELLED' ? (
+              <div className="decision-box decision-box--cancelled" role="status">
+                <strong>تم إلغاء هذا الطلب</strong>
+                <span>{orderDetail.cancellationReason ?? 'تم الاحتفاظ به ضمن الطلبات الملغاة.'}</span>
+              </div>
+            ) : null}
+
             <div className="decision-box">
               <h3>تفاصيل الاستلام</h3>
               {!orderDetail.fulfilmentDetailsConfirmedAt ? (
@@ -1361,7 +1590,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               )}
             </div>
 
-            {orderDetail.paymentState === 'SUBMITTED' && latestSubmission ? (
+            {orderDetailIsActive &&
+            orderDetail.paymentState === 'SUBMITTED' &&
+            latestSubmission ? (
               <div className="decision-box">
                 <h3>مراجعة إثبات التحويل</h3>
                 <p>
@@ -1416,7 +1647,8 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               </div>
             ) : null}
 
-            {orderDetail.productionState === 'READY' &&
+            {orderDetailIsActive &&
+            orderDetail.productionState === 'READY' &&
             orderDetail.fulfilmentState !== 'COMPLETED' ? (
               <form
                 className="workflow-form"
@@ -1478,33 +1710,75 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               <h2 id="manager-messages-title">رسائل العميل</h2>
             </div>
           </div>
-          {!messageCustomerId ? (
-            <p className="workspace-empty">افتح طلبًا لاختيار العميل.</p>
-          ) : (
-            <>
-              <div className="message-list">
-                {messages.map((message) => (
-                  <div
-                    className={`message message--${message.senderKind.toLowerCase()}`}
-                    key={message.id}
-                  >
-                    <strong>{message.senderKind === 'MANAGER' ? 'أنت' : 'العميل'}</strong>
-                    <p>{message.body}</p>
-                    <small>{formatDate(message.sentAt)}</small>
-                  </div>
-                ))}
+          <div className={`chat-shell${messageCustomerId ? ' chat-shell--open' : ''}`}>
+            <aside className="chat-sidebar" aria-label="قائمة المحادثات">
+              <div className="chat-sidebar__heading">
+                <strong>المحادثات</strong>
+                <span>{conversations.length}</span>
               </div>
-              <form className="workflow-form" onSubmit={sendMessage}>
-                <label>
-                  الرد
-                  <textarea name="body" required rows={3} />
-                </label>
-                <button className="button button--small" disabled={busy} type="submit">
-                  إرسال
-                </button>
-              </form>
-            </>
-          )}
+              <label className="chat-sidebar__search">
+                <span className="sr-only">البحث في المحادثات</span>
+                <input
+                  onChange={(event) => setConversationSearch(event.currentTarget.value)}
+                  placeholder="ابحث عن عميل..."
+                  type="search"
+                  value={conversationSearch}
+                />
+              </label>
+              <div className="chat-conversation-list">
+                {visibleConversations.length === 0 ? (
+                  <p className="workspace-empty">
+                    {conversations.length === 0 ? 'لا توجد محادثات بعد.' : 'لا توجد محادثة مطابقة.'}
+                  </p>
+                ) : (
+                  visibleConversations.map((conversation) => (
+                    <button
+                      aria-current={messageCustomerId === conversation.customerId ? 'true' : undefined}
+                      className="chat-conversation"
+                      key={conversation.customerId}
+                      onClick={() => void openConversation(conversation.customerId)}
+                      type="button"
+                    >
+                      <span className="chat-avatar" aria-hidden="true">{conversation.customerLabel.trim().charAt(0) || 'ع'}</span>
+                      <span className="chat-conversation__content">
+                        <span className="chat-conversation__topline">
+                          <strong>{conversation.customerLabel}</strong>
+                          <small>{formatDate(conversation.lastMessageAt)}</small>
+                        </span>
+                        <span className="chat-conversation__preview">
+                          {conversation.lastSenderKind === 'MANAGER' ? 'أنت: ' : ''}{conversation.lastMessageBody}
+                        </span>
+                        <small>{[conversation.customerCity, conversation.customerPhone].filter(Boolean).join(' · ')}</small>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </aside>
+
+            <div className="chat-main">
+              {messageCustomerId ? (
+                <>
+                  <button className="chat-mobile-back" onClick={() => setMessageCustomerId('')} type="button">العودة للمحادثات</button>
+                  <ConversationChat
+                    busy={busy}
+                    currentActor="MANAGER"
+                    emptyText="ابدأ المحادثة مع هذا العميل."
+                    messages={messages}
+                    onSubmit={sendMessage}
+                    subtitle={[selectedConversation?.customerCity ?? requestDetail?.customerCity, selectedConversation?.customerPhone ?? requestDetail?.customerPhone].filter(Boolean).join(' · ')}
+                    title={selectedConversation?.customerLabel ?? requestDetail?.customerLabel ?? 'العميل'}
+                  />
+                </>
+              ) : (
+                <div className="chat-main__empty">
+                  <span aria-hidden="true">💬</span>
+                  <h3>اختر محادثة</h3>
+                  <p>ستظهر رسائل العملاء هنا حتى دون فتح طلب مسبقًا.</p>
+                </div>
+              )}
+            </div>
+          </div>
         </section>
 
         <section

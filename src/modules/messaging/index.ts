@@ -1,1 +1,1 @@
-export { MessageService, type ConversationMessage } from './application/message-service';
+export { MessageService, type ConversationMessage, type ConversationSummary } from './application/message-service';

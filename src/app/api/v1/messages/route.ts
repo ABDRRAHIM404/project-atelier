@@ -6,12 +6,24 @@ const messages = new MessageService();
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const customerId = new URL(request.url).searchParams.get('customerId') ?? undefined;
-    const result = await withWorkflowActor(request, (transaction) =>
+    const url = new URL(request.url);
+    const customerId = url.searchParams.get('customerId') ?? undefined;
+    const view = url.searchParams.get('view');
+    if (view === 'conversations') {
+      const conversations = await withWorkflowActor(request, (transaction) =>
+        messages.listConversations(transaction),
+      );
+      return Response.json(
+        { conversations },
+        { headers: { 'Cache-Control': 'private, no-store' } },
+      );
+    }
+
+    const conversationMessages = await withWorkflowActor(request, (transaction) =>
       messages.list(transaction, customerId),
     );
     return Response.json(
-      { messages: result },
+      { messages: conversationMessages },
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
   } catch (error) {

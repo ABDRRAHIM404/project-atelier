@@ -35,7 +35,18 @@ const statusByCode: Readonly<Record<string, number>> = Object.freeze({
   REQUEST_NOT_CANCELLABLE: 409,
   REQUEST_NOT_ARCHIVABLE: 409,
   ORDER_NOT_CANCELLABLE: 409,
+  ORDER_NOT_ARCHIVABLE: 409,
+  REQUEST_HAS_ORDER: 409,
   NOTIFICATION_NOT_FOUND: 404,
+});
+
+
+const detailByCode: Readonly<Record<string, string>> = Object.freeze({
+  ORDER_NOT_ARCHIVABLE: 'يمكن نقل الطلبات الملغاة أو المكتملة فقط إلى السجل.',
+  ORDER_NOT_CANCELLABLE: 'لا يمكن إلغاء هذا الطلب في حالته الحالية.',
+  REQUEST_HAS_ORDER: 'تحول هذا الطلب إلى طلب مؤكد. استخدم إلغاء الطلب المؤكد بدلًا منه.',
+  REQUEST_NOT_ARCHIVABLE: 'يمكن نقل الطلبات الملغاة أو المرفوضة أو المكتملة فقط إلى السجل.',
+  REQUEST_NOT_CANCELLABLE: 'لا يمكن إلغاء طلب التصميم في حالته الحالية.',
 });
 
 function errorCode(error: unknown): string {
@@ -53,11 +64,12 @@ export function workflowProblem(error: unknown, request: Request): Response {
     {
       code: publicCode,
       detail:
-        publicCode === 'VALIDATION_FAILED'
+        detailByCode[publicCode] ??
+        (publicCode === 'VALIDATION_FAILED'
           ? 'البيانات المدخلة غير مكتملة أو غير صحيحة.'
           : publicCode === 'AUTHENTICATION_REQUIRED'
             ? 'يلزم تسجيل الدخول لإكمال هذه العملية.'
-            : 'تعذر إكمال العملية. راجع الحالة وحاول مرة أخرى.',
+            : 'تعذر إكمال العملية. راجع الحالة وحاول مرة أخرى.'),
       instance: new URL(request.url).pathname,
       title: 'تعذر إكمال الطلب',
       type: 'about:blank',

@@ -42,6 +42,7 @@ export type CustomerProjectSummary = Readonly<{
 }>;
 
 export type SubmittedRequestSummary = Readonly<{
+  archivedAt?: string | undefined;
   cancelledAt?: string | undefined;
   cancellationReason?: string | undefined;
   customerCity?: string | undefined;
@@ -351,6 +352,7 @@ export class CustomerProjectService {
     const actor = customerActor(transaction);
     const result = await transaction.query<
       QueryResultRow & {
+        archived_at: Date | null;
         cancelled_at: Date | null;
         cancellation_reason: string | null;
         customer_id: string;
@@ -366,7 +368,7 @@ export class CustomerProjectService {
     >(
       `select r.id, r.source_project_id as project_id, r.customer_id, r.state,
               r.project_name_snapshot, r.submitted_at, r.display_reference,
-              r.request_type, r.cancelled_at, r.cancellation_reason,
+              r.request_type, r.archived_at, r.cancelled_at, r.cancellation_reason,
               count(i.id)::integer as item_count
        from projects.submitted_requests r
        left join projects.submitted_request_items i on i.request_id = r.id
@@ -378,6 +380,7 @@ export class CustomerProjectService {
     return Object.freeze(
       result.rows.map((row) =>
         Object.freeze({
+          archivedAt: row.archived_at?.toISOString(),
           cancelledAt: row.cancelled_at?.toISOString(),
           cancellationReason: row.cancellation_reason ?? undefined,
           customerId: row.customer_id,
@@ -402,6 +405,7 @@ export class CustomerProjectService {
     managerActor(transaction);
     const request = await transaction.query<
       QueryResultRow & {
+        archived_at: Date | null;
         cancelled_at: Date | null;
         cancellation_reason: string | null;
         customer_city: string | null;
@@ -423,7 +427,7 @@ export class CustomerProjectService {
       `select r.id, r.source_project_id as project_id, r.customer_id, r.state,
               r.project_name_snapshot, r.customer_notes_snapshot, r.submitted_at,
               r.display_reference, r.request_type, r.custom_design_details,
-              r.custom_design_files, r.cancelled_at, r.cancellation_reason,
+              r.custom_design_files, r.archived_at, r.cancelled_at, r.cancellation_reason,
               coalesce(nullif(c.full_name, ''), c.contact_email, c.verified_email_snapshot, 'عميل') as customer_label,
               c.phone_number as customer_phone, c.city as customer_city
        from projects.submitted_requests r
@@ -452,6 +456,7 @@ export class CustomerProjectService {
     );
 
     return Object.freeze({
+      archivedAt: row.archived_at?.toISOString(),
       cancelledAt: row.cancelled_at?.toISOString(),
       cancellationReason: row.cancellation_reason ?? undefined,
       customerCity: row.customer_city ?? undefined,
@@ -492,6 +497,7 @@ export class CustomerProjectService {
     managerActor(transaction);
     const result = await transaction.query<
       QueryResultRow & {
+        archived_at: Date | null;
         cancelled_at: Date | null;
         cancellation_reason: string | null;
         customer_city: string | null;
@@ -510,7 +516,7 @@ export class CustomerProjectService {
     >(
       `select r.id, r.source_project_id as project_id, r.customer_id, r.state,
               r.project_name_snapshot, r.submitted_at, r.display_reference,
-              r.request_type, r.cancelled_at, r.cancellation_reason,
+              r.request_type, r.archived_at, r.cancelled_at, r.cancellation_reason,
               coalesce(nullif(c.full_name, ''), c.contact_email, c.verified_email_snapshot, 'عميل') as customer_label,
               c.phone_number as customer_phone, c.city as customer_city,
               count(i.id)::integer as item_count
@@ -526,6 +532,7 @@ export class CustomerProjectService {
     return Object.freeze(
       result.rows.map((row) =>
         Object.freeze({
+          archivedAt: row.archived_at?.toISOString(),
           cancelledAt: row.cancelled_at?.toISOString(),
           cancellationReason: row.cancellation_reason ?? undefined,
           customerCity: row.customer_city ?? undefined,
@@ -623,6 +630,35 @@ export class CustomerProjectService {
     const row = result.rows[0];
     if (!row) throw new Error('REQUEST_NOT_FOUND');
     if (['CANCELLED', 'REJECTED', 'COMPLETED'].includes(row.state)) throw new Error('REQUEST_NOT_CANCELLABLE');
+    const linkedOrder = await transaction.query<QueryResultRow & { id: string }>(
+      `select o.id
+       from orders.orders o
+       join quotes.quotation_revisions revision on revision.id = o.accepted_revision_id
+       join quotes.quotations quotation on quotation.id = revision.quotation_id
+       where quotation.submitted_request_id = $1
+       limit 1`,
+      [requestId],
+    );
+    if (linkedOrder.rows[0]) throw new Error('REQUEST_HAS_ORDER');
+
+    await transaction.query(
+      `update quotes.quotation_revisions revision
+       set state = 'DECLINED', updated_at = clock_timestamp(),
+           record_version = record_version + 1
+       from quotes.quotations quotation
+       where quotation.submitted_request_id = $1
+         and quotation.current_sent_revision_id = revision.id
+         and revision.state = 'SENT'`,
+      [requestId],
+    );
+    await transaction.query(
+      `update quotes.quotations
+       set lifecycle = 'DECLINED', updated_at = clock_timestamp(),
+           record_version = record_version + 1
+       where submitted_request_id = $1 and lifecycle = 'SENT'`,
+      [requestId],
+    );
+
     await transaction.query(
       `update projects.submitted_requests
        set state = 'CANCELLED', cancelled_at = clock_timestamp(), cancelled_by = $2,

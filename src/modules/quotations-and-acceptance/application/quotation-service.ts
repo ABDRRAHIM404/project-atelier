@@ -60,6 +60,9 @@ function displayReference(now: Date): string {
 
 export type QuotationSummary = Readonly<{
   currencyCode: string;
+  requestDisplayReference: string;
+  requestId: string;
+  requestName: string;
   id: string;
   productionEstimateText: string;
   revisionId: string;
@@ -93,9 +96,15 @@ export class QuotationService {
     if (!managerId) throw new Error('MANAGER_NOT_ACTIVE');
 
     const request = await transaction.query<
-      QueryResultRow & { customer_id: string; source_project_id: string; state: string }
+      QueryResultRow & {
+        customer_id: string;
+        display_reference: string;
+        project_name_snapshot: string;
+        source_project_id: string | null;
+        state: string;
+      }
     >(
-      `select customer_id, source_project_id, state
+      `select customer_id, source_project_id, state, display_reference, project_name_snapshot
        from projects.submitted_requests
        where id = $1 for update`,
       [parsed.requestId],
@@ -272,6 +281,9 @@ export class QuotationService {
 
     return Object.freeze({
       currencyCode: 'SAR',
+      requestDisplayReference: requestRow.display_reference,
+      requestId: parsed.requestId,
+      requestName: requestRow.project_name_snapshot.replace(/^طلب\s+/u, ''),
       id: quotationRow.id,
       productionEstimateText: parsed.productionEstimateText,
       revisionId,
@@ -510,6 +522,9 @@ export class QuotationService {
         currency_code: string;
         id: string;
         production_estimate_text: string;
+        request_display_reference: string;
+        request_id: string;
+        request_name: string;
         revision_id: string;
         revision_number: number;
         state: string;
@@ -517,15 +532,21 @@ export class QuotationService {
       }
     >(
       `select q.id, r.id as revision_id, r.revision_number, q.lifecycle as state,
-              r.currency_code, r.total_minor, r.production_estimate_text
+              r.currency_code, r.total_minor, r.production_estimate_text,
+              sr.id as request_id, sr.display_reference as request_display_reference,
+              regexp_replace(sr.project_name_snapshot, '^طلب\\s+', '') as request_name
        from quotes.quotations q
        join quotes.quotation_revisions r on r.id = q.current_sent_revision_id
+       join projects.submitted_requests sr on sr.id = q.submitted_request_id
        order by r.sent_at desc`,
     );
     return Object.freeze(
       result.rows.map((item) =>
         Object.freeze({
           currencyCode: item.currency_code,
+          requestDisplayReference: item.request_display_reference,
+          requestId: item.request_id,
+          requestName: item.request_name,
           id: item.id,
           productionEstimateText: item.production_estimate_text,
           revisionId: item.revision_id,
