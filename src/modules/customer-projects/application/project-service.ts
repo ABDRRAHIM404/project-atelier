@@ -324,9 +324,12 @@ export class CustomerProjectService {
     const productNameResult = await transaction.query<QueryResultRow & { name: string }>(
       `select coalesce(t.content_json ->> 'name', 'تصميم مخصص') as name
        from catalog.products p
-       left join catalog.product_translations t
-         on t.product_id = p.id and t.locale = 'ar-SA'
-       where p.id = $1 and p.lifecycle = 'PUBLISHED'`,
+       join cms.localized_resources r on r.id = p.localized_resource_id
+       join cms.translation_revisions t on t.id = r.current_ar_revision_id
+       where p.id = $1
+         and p.lifecycle = 'PUBLISHED'
+         and t.lifecycle = 'PUBLISHED'
+         and not t.stale_source`,
       [input.productId],
     );
     const productName = productNameResult.rows[0]?.name;
