@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CustomerProjectService } from '../../src/modules/customer-projects';
 import { FulfilmentService } from '../../src/modules/fulfilment';
+import { MessageService } from '../../src/modules/messaging';
 import { OrderQueryService } from '../../src/modules/orders';
 import { PaymentService } from '../../src/modules/payments';
 import { ProductionService } from '../../src/modules/production';
@@ -155,6 +156,7 @@ describe('lean V1 commercial workflow', () => {
     await expect(
       withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
         payments.submitProof(transaction, {
+          declaredReference: 'TRX-BEFORE-DETAILS',
           orderId: accepted.orderId,
           proofDisplayFilename: 'bank-transfer.pdf',
           proofMediaType: 'application/pdf',
@@ -178,6 +180,7 @@ describe('lean V1 commercial workflow', () => {
 
     const payment = await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
       payments.submitProof(transaction, {
+        declaredReference: 'TRX-TEST-001',
         orderId: accepted.orderId,
         proofChecksumSha256: 'b'.repeat(64),
         proofDisplayFilename: 'bank-transfer.pdf',
@@ -233,6 +236,126 @@ describe('lean V1 commercial workflow', () => {
     });
     expect(detail?.items).toHaveLength(1);
     expect(detail?.productionUpdates).toHaveLength(4);
+  });
+
+  it('declines a sent quotation and notifies the manager', async () => {
+    const projects = new CustomerProjectService();
+    const quotations = new QuotationService();
+    const project = await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+      projects.createProject(transaction, { projectName: 'طاولة مرفوضة' }),
+    );
+    await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+      projects.addItem(transaction, {
+        productId: ids.product,
+        projectId: project.id,
+      }),
+    );
+    const submitted = await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+      projects.submitProject(transaction, project.id),
+    );
+    const submittedItem = await owner.query<{ id: string }>(
+      `select id from projects.submitted_request_items where request_id = $1`,
+      [submitted.requestId],
+    );
+    const quote = await withActorTransaction(pool, p1ActorContexts.managerMfa, (transaction) =>
+      quotations.createAndSend(transaction, {
+        deliveryMinor: 0,
+        fulfilmentMethod: 'PICKUP',
+        lines: [{ itemTotalMinor: 250000, submittedItemId: submittedItem.rows[0]!.id }],
+        productionEstimateText: 'عشرون يوم عمل',
+        requestId: submitted.requestId,
+        termsSnapshot: { payment: 'تحويل بنكي كامل قبل بدء التنفيذ' },
+      }),
+    );
+
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+        quotations.decline(transaction, {
+          reason: 'السعر مرتفع',
+          revisionId: quote.revisionId,
+        }),
+      ),
+    ).resolves.toEqual({ quotationId: quote.id });
+
+    const result = await owner.query<{ event_type: string; lifecycle: string; state: string }>(
+      `select n.event_type, q.lifecycle, r.state
+       from quotes.quotations q
+       join quotes.quotation_revisions r on r.quotation_id = q.id
+       join notifications.notifications n
+         on n.resource_id = q.id and n.event_type = 'QUOTATION_DECLINED'
+       where q.id = $1 and r.id = $2`,
+      [quote.id, quote.revisionId],
+    );
+    expect(result.rows[0]).toEqual({
+      event_type: 'QUOTATION_DECLINED',
+      lifecycle: 'DECLINED',
+      state: 'SENT',
+    });
+  });
+
+  it('counts only unread messages and clears each recipient badge after reading', async () => {
+    const messages = new MessageService();
+    const customerMessage = await withActorTransaction(
+      pool,
+      p1ActorContexts.customerA,
+      (transaction) =>
+        messages.send(transaction, {
+          body: 'هل يمكن تعديل اللون؟',
+          clientMessageKey: 'customer-message-001',
+        }),
+    );
+
+    const managerBeforeRead = await withActorTransaction(
+      pool,
+      p1ActorContexts.managerMfa,
+      (transaction) => messages.listConversations(transaction),
+    );
+    expect(managerBeforeRead).toEqual([
+      expect.objectContaining({
+        customerId: p1FixtureIds.customerA,
+        unreadCount: 1,
+      }),
+    ]);
+
+    await withActorTransaction(pool, p1ActorContexts.managerMfa, (transaction) =>
+      messages.markRead(transaction, {
+        customerId: p1FixtureIds.customerA,
+        readThroughMessageId: customerMessage.messageId,
+      }),
+    );
+    const managerAfterRead = await withActorTransaction(
+      pool,
+      p1ActorContexts.managerMfa,
+      (transaction) => messages.unreadCount(transaction),
+    );
+    expect(managerAfterRead).toEqual({ unreadCount: 0 });
+
+    const managerMessage = await withActorTransaction(
+      pool,
+      p1ActorContexts.managerMfa,
+      (transaction) =>
+        messages.send(transaction, {
+          body: 'نعم، يمكن تعديله.',
+          clientMessageKey: 'manager-message-001',
+          customerId: p1FixtureIds.customerA,
+        }),
+    );
+    const customerBeforeRead = await withActorTransaction(
+      pool,
+      p1ActorContexts.customerA,
+      (transaction) => messages.unreadCount(transaction),
+    );
+    expect(customerBeforeRead).toEqual({ unreadCount: 1 });
+
+    const customerAfterRead = await withActorTransaction(
+      pool,
+      p1ActorContexts.customerA,
+      (transaction) =>
+        messages.markRead(transaction, {
+          readThroughMessageId: managerMessage.messageId,
+        }),
+    );
+    expect(customerAfterRead).toEqual({ unreadCount: 0 });
   });
 
   it('lets the manager create and revise Arabic catalog drafts without publishing them', async () => {

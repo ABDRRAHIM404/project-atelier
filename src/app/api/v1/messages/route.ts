@@ -9,6 +9,14 @@ export async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const customerId = url.searchParams.get('customerId') ?? undefined;
     const view = url.searchParams.get('view');
+    if (view === 'unread') {
+      const result = await withWorkflowActor(request, (transaction) =>
+        messages.unreadCount(transaction),
+      );
+      return Response.json(result, {
+        headers: { 'Cache-Control': 'private, no-store' },
+      });
+    }
     if (view === 'conversations') {
       const conversations = await withWorkflowActor(request, (transaction) =>
         messages.listConversations(transaction),

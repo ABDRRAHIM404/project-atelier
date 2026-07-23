@@ -94,7 +94,6 @@ type Message = Readonly<{
   sentAt: string;
 }>;
 
-
 type ConversationSummary = Readonly<{
   customerCity?: string;
   customerId: string;
@@ -104,6 +103,7 @@ type ConversationSummary = Readonly<{
   lastMessageBody: string;
   lastSenderKind: 'CUSTOMER' | 'MANAGER';
   messageCount: number;
+  unreadCount: number;
 }>;
 
 type Notification = Readonly<{
@@ -196,6 +196,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [messages, setMessages] = useState<readonly Message[]>([]);
   const [conversations, setConversations] = useState<readonly ConversationSummary[]>([]);
   const [messageCustomerId, setMessageCustomerId] = useState('');
+  const [quotationFulfilmentMethod, setQuotationFulfilmentMethod] = useState<'DELIVERY' | 'PICKUP'>(
+    'DELIVERY',
+  );
+  const [quotationDeliveryPrice, setQuotationDeliveryPrice] = useState('0');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -203,10 +207,16 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('ALL');
   const [managedProductId, setManagedProductId] = useState<string>();
   const [requestSearch, setRequestSearch] = useState('');
-  const [requestView, setRequestView] = useState<'ACTION' | 'WAITING' | 'CANCELLED' | 'HISTORY'>('ACTION');
+  const [requestView, setRequestView] = useState<'ACTION' | 'WAITING' | 'CANCELLED' | 'HISTORY'>(
+    'ACTION',
+  );
   const [orderView, setOrderView] = useState<'ACTIVE' | 'CANCELLED' | 'HISTORY'>('ACTIVE');
   const [conversationSearch, setConversationSearch] = useState('');
-  const [cancelTarget, setCancelTarget] = useState<{ id: string; kind: 'ORDER' | 'REQUEST'; title: string }>();
+  const [cancelTarget, setCancelTarget] = useState<{
+    id: string;
+    kind: 'ORDER' | 'REQUEST';
+    title: string;
+  }>();
   const requestDetailRef = useRef<HTMLElement>(null);
   const initialTabChosen = useRef(false);
 
@@ -219,13 +229,16 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           method: 'POST',
         });
       }
-      const [requestResult, orderResult, notificationResult, catalogResult, conversationResult] = await Promise.all([
-        apiRequest<{ requests: readonly RequestSummary[] }>('/api/v1/manager/requests'),
-        apiRequest<{ orders: readonly Order[] }>('/api/v1/orders'),
-        apiRequest<{ notifications: readonly Notification[] }>('/api/v1/notifications'),
-        apiRequest<{ products: readonly CatalogProduct[] }>('/api/v1/manager/catalog/products'),
-        apiRequest<{ conversations: readonly ConversationSummary[] }>('/api/v1/messages?view=conversations'),
-      ]);
+      const [requestResult, orderResult, notificationResult, catalogResult, conversationResult] =
+        await Promise.all([
+          apiRequest<{ requests: readonly RequestSummary[] }>('/api/v1/manager/requests'),
+          apiRequest<{ orders: readonly Order[] }>('/api/v1/orders'),
+          apiRequest<{ notifications: readonly Notification[] }>('/api/v1/notifications'),
+          apiRequest<{ products: readonly CatalogProduct[] }>('/api/v1/manager/catalog/products'),
+          apiRequest<{ conversations: readonly ConversationSummary[] }>(
+            '/api/v1/messages?view=conversations',
+          ),
+        ]);
       setRequests(requestResult.requests);
       setOrders(orderResult.orders);
       setNotifications(notificationResult.notifications);
@@ -276,21 +289,52 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }, [refresh]);
 
   useEffect(() => {
+    let disposed = false;
+    const syncConversations = async () => {
+      try {
+        const result = await apiRequest<{ conversations: readonly ConversationSummary[] }>(
+          '/api/v1/messages?view=conversations',
+        );
+        if (!disposed) setConversations(result.conversations);
+      } catch {
+        // Keep the last known inbox and badge counts when a background refresh fails.
+      }
+    };
+
+    const timer = window.setInterval(() => void syncConversations(), 10_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     if (activeTab !== 'messages') return;
     let disposed = false;
 
     const syncMessages = async () => {
+      if (!messageCustomerId) return;
       try {
-        const conversationResult = await apiRequest<{
-          conversations: readonly ConversationSummary[];
-        }>('/api/v1/messages?view=conversations');
-        if (!disposed) setConversations(conversationResult.conversations);
-
-        if (messageCustomerId) {
-          const messageResult = await apiRequest<{ messages: readonly Message[] }>(
-            `/api/v1/messages?customerId=${encodeURIComponent(messageCustomerId)}`,
-          );
-          if (!disposed) setMessages(messageResult.messages);
+        const messageResult = await apiRequest<{ messages: readonly Message[] }>(
+          `/api/v1/messages?customerId=${encodeURIComponent(messageCustomerId)}`,
+        );
+        if (disposed) return;
+        setMessages(messageResult.messages);
+        const latestCustomerMessage = messageResult.messages.findLast(
+          (message) => message.senderKind === 'CUSTOMER',
+        );
+        if (latestCustomerMessage) {
+          await apiRequest('/api/v1/messages/read', {
+            body: JSON.stringify({
+              customerId: messageCustomerId,
+              readThroughMessageId: latestCustomerMessage.id,
+            }),
+            method: 'POST',
+          });
+          const conversationResult = await apiRequest<{
+            conversations: readonly ConversationSummary[];
+          }>('/api/v1/messages?view=conversations');
+          if (!disposed) setConversations(conversationResult.conversations);
         }
       } catch {
         // Keep the current inbox visible when a background refresh fails.
@@ -464,6 +508,8 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
 
   async function openRequest(requestId: string) {
     setActiveTab('requests');
+    setQuotationFulfilmentMethod('DELIVERY');
+    setQuotationDeliveryPrice('0');
     setBusy(true);
     setError('');
     try {
@@ -492,8 +538,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     await perform(async () => {
       await apiRequest(`/api/v1/manager/requests/${requestDetail.id}/quotation`, {
         body: JSON.stringify({
-          deliveryMinor: minorFromForm(form, 'delivery'),
-          fulfilmentMethod: formText(form, 'fulfilmentMethod'),
+          deliveryMinor:
+            quotationFulfilmentMethod === 'PICKUP' ? 0 : minorFromForm(form, 'delivery'),
+          fulfilmentMethod: quotationFulfilmentMethod,
           fulfilmentSnapshot: {},
           lines,
           managerNotes: formText(form, 'managerNotes'),
@@ -511,9 +558,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         }),
         method: 'POST',
       });
-      setRequestDetail(
-        await apiRequest<RequestDetail>(`/api/v1/manager/requests/${requestDetail.id}`),
-      );
+      setRequestDetail(undefined);
+      setQuotationFulfilmentMethod('DELIVERY');
+      setQuotationDeliveryPrice('0');
     }, 'تم إرسال عرض السعر للعميل.');
   }
 
@@ -592,6 +639,22 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         `/api/v1/messages?customerId=${encodeURIComponent(customerId)}`,
       );
       setMessages(result.messages);
+      const latestCustomerMessage = result.messages.findLast(
+        (message) => message.senderKind === 'CUSTOMER',
+      );
+      if (latestCustomerMessage) {
+        await apiRequest('/api/v1/messages/read', {
+          body: JSON.stringify({
+            customerId,
+            readThroughMessageId: latestCustomerMessage.id,
+          }),
+          method: 'POST',
+        });
+        const conversationResult = await apiRequest<{
+          conversations: readonly ConversationSummary[];
+        }>('/api/v1/messages?view=conversations');
+        setConversations(conversationResult.conversations);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'تعذر فتح المحادثة.');
     } finally {
@@ -601,16 +664,21 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!messageCustomerId) return;
+    if (!messageCustomerId || busy) return;
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const body = formText(form, 'body');
+    if (!body) {
+      setError('اكتب رسالة قبل الإرسال.');
+      return;
+    }
     setBusy(true);
     setError('');
     setNotice('');
     try {
       await apiRequest('/api/v1/messages', {
         body: JSON.stringify({
-          body: formText(form, 'body'),
+          body,
           clientMessageKey: crypto.randomUUID(),
           customerId: messageCustomerId,
           projectId:
@@ -642,7 +710,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     const form = new FormData(event.currentTarget);
     await perform(async () => {
       await apiRequest(`/api/v1/orders/${orderId}/cancel`, {
-        body: JSON.stringify({ reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — ') }),
+        body: JSON.stringify({
+          reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — '),
+        }),
         method: 'POST',
       });
       setOrderDetail(undefined);
@@ -662,7 +732,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     const form = new FormData(event.currentTarget);
     await perform(async () => {
       await apiRequest(`/api/v1/requests/${requestId}/cancel`, {
-        body: JSON.stringify({ reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — ') }),
+        body: JSON.stringify({
+          reason: [formText(form, 'reason'), formText(form, 'details')].filter(Boolean).join(' — '),
+        }),
         method: 'POST',
       });
       setRequestDetail(undefined);
@@ -688,6 +760,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }
 
   const unreadNotificationCount = notifications.filter((notification) => !notification.read).length;
+  const unreadMessageCount = conversations.reduce(
+    (total, conversation) => total + conversation.unreadCount,
+    0,
+  );
   const filteredCatalogProducts = catalogProducts.filter(
     (product) => catalogFilter === 'ALL' || product.lifecycle === catalogFilter,
   );
@@ -721,13 +797,19 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         : historicalOrders;
   const normalizedRequestSearch = requestSearch.trim().toLocaleLowerCase('ar');
   const inboxRequests = inboxSourceRequests.filter((request) => {
-    const matchesSearch = !normalizedRequestSearch ||
+    const matchesSearch =
+      !normalizedRequestSearch ||
       `${request.customerLabel} ${request.customerPhone ?? ''} ${request.displayReference} ${request.projectName}`
         .toLocaleLowerCase('ar')
         .includes(normalizedRequestSearch);
     if (!matchesSearch) return false;
-    if (requestView === 'ACTION') return !request.archivedAt && actionableRequestStates.includes(request.state);
-    if (requestView === 'WAITING') return !request.archivedAt && ['WAITING_FOR_CUSTOMER_INFORMATION', 'QUOTED'].includes(request.state);
+    if (requestView === 'ACTION')
+      return !request.archivedAt && actionableRequestStates.includes(request.state);
+    if (requestView === 'WAITING')
+      return (
+        !request.archivedAt &&
+        ['WAITING_FOR_CUSTOMER_INFORMATION', 'QUOTED'].includes(request.state)
+      );
     if (requestView === 'CANCELLED') return !request.archivedAt && request.state === 'CANCELLED';
     return Boolean(request.archivedAt) || ['REJECTED', 'COMPLETED'].includes(request.state);
   });
@@ -774,13 +856,27 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
       {error ? (
         <div className="toast toast--error" role="alert">
           <span>{error}</span>
-          <button aria-label="إغلاق التنبيه" className="toast__close" onClick={() => setError('')} type="button">×</button>
+          <button
+            aria-label="إغلاق التنبيه"
+            className="toast__close"
+            onClick={() => setError('')}
+            type="button"
+          >
+            ×
+          </button>
         </div>
       ) : null}
       {notice ? (
         <div className="toast toast--success" role="status">
           <span>{notice}</span>
-          <button aria-label="إغلاق التنبيه" className="toast__close" onClick={() => setNotice('')} type="button">×</button>
+          <button
+            aria-label="إغلاق التنبيه"
+            className="toast__close"
+            onClick={() => setNotice('')}
+            type="button"
+          >
+            ×
+          </button>
         </div>
       ) : null}
 
@@ -834,6 +930,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           type="button"
         >
           الرسائل
+          {unreadMessageCount > 0 ? (
+            <span className="manager-tab__badge">{badgeText(unreadMessageCount)}</span>
+          ) : null}
         </button>
         <button
           aria-controls="manager-panel-notifications"
@@ -1179,7 +1278,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               <p className="eyebrow">صندوق العمل</p>
               <h2 id="manager-requests-title">ما يحتاج إلى انتباهك</h2>
             </div>
-            {inboxRequests.length > 0 ? <span className="count-pill">{inboxRequests.length}</span> : null}
+            {inboxRequests.length > 0 ? (
+              <span className="count-pill">{inboxRequests.length}</span>
+            ) : null}
           </div>
           <div className="manager-inbox-controls">
             <label className="manager-inbox-search" htmlFor="manager-request-search">
@@ -1211,10 +1312,42 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               </span>
             </label>
             <div className="saved-views">
-              <button className={requestView === 'ACTION' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('ACTION')} type="button">يحتاج إجراء</button>
-              <button className={requestView === 'WAITING' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('WAITING')} type="button">بانتظار العميل</button>
-              <button className={requestView === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('CANCELLED')} type="button">الملغاة</button>
-              <button className={requestView === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'} onClick={() => setRequestView('HISTORY')} type="button">السجل</button>
+              <button
+                className={
+                  requestView === 'ACTION' ? 'saved-view saved-view--active' : 'saved-view'
+                }
+                onClick={() => setRequestView('ACTION')}
+                type="button"
+              >
+                يحتاج إجراء
+              </button>
+              <button
+                className={
+                  requestView === 'WAITING' ? 'saved-view saved-view--active' : 'saved-view'
+                }
+                onClick={() => setRequestView('WAITING')}
+                type="button"
+              >
+                بانتظار العميل
+              </button>
+              <button
+                className={
+                  requestView === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'
+                }
+                onClick={() => setRequestView('CANCELLED')}
+                type="button"
+              >
+                الملغاة
+              </button>
+              <button
+                className={
+                  requestView === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'
+                }
+                onClick={() => setRequestView('HISTORY')}
+                type="button"
+              >
+                السجل
+              </button>
             </div>
           </div>
           <div className="manager-inbox-list">
@@ -1226,11 +1359,19 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                   <div className="workflow-card__heading">
                     <div>
                       <h3>{request.projectName}</h3>
-                      <span>{request.customerLabel}{request.customerCity ? ` · ${request.customerCity}` : ''}{request.customerPhone ? ` · ${request.customerPhone}` : ''}</span>
+                      <span>
+                        {request.customerLabel}
+                        {request.customerCity ? ` · ${request.customerCity}` : ''}
+                        {request.customerPhone ? ` · ${request.customerPhone}` : ''}
+                      </span>
                     </div>
                     <span className="status-badge">{stateLabel(request.state)}</span>
                   </div>
-                  <p>{request.displayReference} · {request.requestType === 'CUSTOM_DESIGN' ? 'تصميم خاص' : 'منتج من الكتالوج'} · {formatDate(request.submittedAt)}</p>
+                  <p>
+                    {request.displayReference} ·{' '}
+                    {request.requestType === 'CUSTOM_DESIGN' ? 'تصميم خاص' : 'منتج من الكتالوج'} ·{' '}
+                    {formatDate(request.submittedAt)}
+                  </p>
                   <button
                     className="button button--secondary button--small"
                     disabled={busy}
@@ -1257,7 +1398,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               <p className="eyebrow">التنفيذ والسجل</p>
               <h2 id="manager-orders-title">الطلبات</h2>
             </div>
-            {visibleOrders.length > 0 ? <span className="count-pill">{visibleOrders.length}</span> : null}
+            {visibleOrders.length > 0 ? (
+              <span className="count-pill">{visibleOrders.length}</span>
+            ) : null}
           </div>
           <div className="saved-views manager-order-views" aria-label="تصفية الطلبات">
             <button
@@ -1297,7 +1440,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                   <div className="workflow-card__heading">
                     <div>
                       <h3>{order.requestName}</h3>
-                      <span>{order.displayReference} · {formatMoney(order.totalMinor, order.currencyCode)}</span>
+                      <span>
+                        {order.displayReference} ·{' '}
+                        {formatMoney(order.totalMinor, order.currencyCode)}
+                      </span>
                     </div>
                     <span className="status-badge">{stateLabel(order.lifecycleState)}</span>
                   </div>
@@ -1382,13 +1528,30 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               </button>
             </div>
             <div className="request-detail-summary">
-              <span><small>المرجع</small>{requestDetail.displayReference}</span>
-              <span><small>العميل</small>{requestDetail.customerLabel}</span>
-              {requestDetail.customerPhone ? <span><small>الهاتف</small>{requestDetail.customerPhone}</span> : null}
-              {requestDetail.customerCity ? <span><small>المدينة</small>{requestDetail.customerCity}</span> : null}
+              <span>
+                <small>المرجع</small>
+                {requestDetail.displayReference}
+              </span>
+              <span>
+                <small>العميل</small>
+                {requestDetail.customerLabel}
+              </span>
+              {requestDetail.customerPhone ? (
+                <span>
+                  <small>الهاتف</small>
+                  {requestDetail.customerPhone}
+                </span>
+              ) : null}
+              {requestDetail.customerCity ? (
+                <span>
+                  <small>المدينة</small>
+                  {requestDetail.customerCity}
+                </span>
+              ) : null}
             </div>
             <p>{requestDetail.customerNotes || 'لا توجد ملاحظات عامة.'}</p>
-            {requestDetail.requestType === 'CUSTOM_DESIGN' && requestDetail.customDesignFiles.length > 0 ? (
+            {requestDetail.requestType === 'CUSTOM_DESIGN' &&
+            requestDetail.customDesignFiles.length > 0 ? (
               <div className="custom-design-file-list">
                 {requestDetail.customDesignFiles.map((file, index) => (
                   <a
@@ -1398,10 +1561,16 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                     rel="noreferrer"
                     target="_blank"
                   >
-                    {typeof file.signedUrl === 'string' && String(file.mediaType ?? '').startsWith('image/') ? (
+                    {typeof file.signedUrl === 'string' &&
+                    String(file.mediaType ?? '').startsWith('image/') ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img alt={String(file.displayName ?? `ملف ${index + 1}`)} src={file.signedUrl} />
-                    ) : <span className="custom-design-file__icon">PDF</span>}
+                      <img
+                        alt={String(file.displayName ?? `ملف ${index + 1}`)}
+                        src={file.signedUrl}
+                      />
+                    ) : (
+                      <span className="custom-design-file__icon">PDF</span>
+                    )}
                     <strong>{String(file.displayName ?? `ملف ${index + 1}`)}</strong>
                     <small>فتح الملف</small>
                   </a>
@@ -1409,7 +1578,19 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               </div>
             ) : null}
             {!['CANCELLED', 'REJECTED', 'COMPLETED'].includes(requestDetail.state) ? (
-              <button className="plain-button plain-button--danger" onClick={() => setCancelTarget({ id: requestDetail.id, kind: 'REQUEST', title: requestDetail.projectName })} type="button">إلغاء الطلب</button>
+              <button
+                className="plain-button plain-button--danger"
+                onClick={() =>
+                  setCancelTarget({
+                    id: requestDetail.id,
+                    kind: 'REQUEST',
+                    title: requestDetail.projectName,
+                  })
+                }
+                type="button"
+              >
+                إلغاء الطلب
+              </button>
             ) : null}
             <form className="workflow-form" onSubmit={sendQuotation}>
               {requestDetail.items.map((item) => (
@@ -1428,19 +1609,32 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               <label>
                 تكلفة التوصيل (ر.س)
                 <input
-                  defaultValue="0"
+                  disabled={quotationFulfilmentMethod === 'PICKUP'}
                   min="0"
                   name="delivery"
+                  onChange={(event) => setQuotationDeliveryPrice(event.currentTarget.value)}
                   required
                   step="0.01"
                   type="number"
+                  value={quotationFulfilmentMethod === 'PICKUP' ? '0' : quotationDeliveryPrice}
                 />
+                {quotationFulfilmentMethod === 'PICKUP' ? (
+                  <small className="field-help">لا توجد تكلفة توصيل عند الاستلام من الورشة.</small>
+                ) : null}
               </label>
               <label>
                 طريقة الاستلام
-                <select name="fulfilmentMethod">
-                  <option value="PICKUP">استلام</option>
+                <select
+                  name="fulfilmentMethod"
+                  onChange={(event) => {
+                    const method = event.currentTarget.value as 'DELIVERY' | 'PICKUP';
+                    setQuotationFulfilmentMethod(method);
+                    if (method === 'PICKUP') setQuotationDeliveryPrice('0');
+                  }}
+                  value={quotationFulfilmentMethod}
+                >
                   <option value="DELIVERY">توصيل</option>
+                  <option value="PICKUP">استلام</option>
                 </select>
               </label>
               <label className="workflow-form__full">
@@ -1525,7 +1719,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
             {orderDetail.lifecycleState === 'CANCELLED' ? (
               <div className="decision-box decision-box--cancelled" role="status">
                 <strong>تم إلغاء هذا الطلب</strong>
-                <span>{orderDetail.cancellationReason ?? 'تم الاحتفاظ به ضمن الطلبات الملغاة.'}</span>
+                <span>
+                  {orderDetail.cancellationReason ?? 'تم الاحتفاظ به ضمن الطلبات الملغاة.'}
+                </span>
               </div>
             ) : null}
 
@@ -1590,9 +1786,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               )}
             </div>
 
-            {orderDetailIsActive &&
-            orderDetail.paymentState === 'SUBMITTED' &&
-            latestSubmission ? (
+            {orderDetailIsActive && orderDetail.paymentState === 'SUBMITTED' && latestSubmission ? (
               <div className="decision-box">
                 <h3>مراجعة إثبات التحويل</h3>
                 <p>
@@ -1733,23 +1927,37 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 ) : (
                   visibleConversations.map((conversation) => (
                     <button
-                      aria-current={messageCustomerId === conversation.customerId ? 'true' : undefined}
+                      aria-current={
+                        messageCustomerId === conversation.customerId ? 'true' : undefined
+                      }
                       className="chat-conversation"
                       key={conversation.customerId}
                       onClick={() => void openConversation(conversation.customerId)}
                       type="button"
                     >
-                      <span className="chat-avatar" aria-hidden="true">{conversation.customerLabel.trim().charAt(0) || 'ع'}</span>
+                      <span className="chat-avatar" aria-hidden="true">
+                        {conversation.customerLabel.trim().charAt(0) || 'ع'}
+                      </span>
                       <span className="chat-conversation__content">
                         <span className="chat-conversation__topline">
                           <strong>{conversation.customerLabel}</strong>
                           <small>{formatDate(conversation.lastMessageAt)}</small>
                         </span>
                         <span className="chat-conversation__preview">
-                          {conversation.lastSenderKind === 'MANAGER' ? 'أنت: ' : ''}{conversation.lastMessageBody}
+                          {conversation.lastSenderKind === 'MANAGER' ? 'أنت: ' : ''}
+                          {conversation.lastMessageBody}
                         </span>
-                        <small>{[conversation.customerCity, conversation.customerPhone].filter(Boolean).join(' · ')}</small>
+                        <small>
+                          {[conversation.customerCity, conversation.customerPhone]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </small>
                       </span>
+                      {conversation.unreadCount > 0 ? (
+                        <span className="chat-conversation__badge">
+                          {badgeText(conversation.unreadCount)}
+                        </span>
+                      ) : null}
                     </button>
                   ))
                 )}
@@ -1759,15 +1967,30 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
             <div className="chat-main">
               {messageCustomerId ? (
                 <>
-                  <button className="chat-mobile-back" onClick={() => setMessageCustomerId('')} type="button">العودة للمحادثات</button>
+                  <button
+                    className="chat-mobile-back"
+                    onClick={() => setMessageCustomerId('')}
+                    type="button"
+                  >
+                    العودة للمحادثات
+                  </button>
                   <ConversationChat
                     busy={busy}
                     currentActor="MANAGER"
                     emptyText="ابدأ المحادثة مع هذا العميل."
                     messages={messages}
                     onSubmit={sendMessage}
-                    subtitle={[selectedConversation?.customerCity ?? requestDetail?.customerCity, selectedConversation?.customerPhone ?? requestDetail?.customerPhone].filter(Boolean).join(' · ')}
-                    title={selectedConversation?.customerLabel ?? requestDetail?.customerLabel ?? 'العميل'}
+                    subtitle={[
+                      selectedConversation?.customerCity ?? requestDetail?.customerCity,
+                      selectedConversation?.customerPhone ?? requestDetail?.customerPhone,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    title={
+                      selectedConversation?.customerLabel ??
+                      requestDetail?.customerLabel ??
+                      'العميل'
+                    }
                   />
                 </>
               ) : (
@@ -1814,25 +2037,69 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         </section>
       </div>
       {cancelTarget ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setCancelTarget(undefined)}>
-          <section aria-labelledby="manager-cancel-title" aria-modal="true" className="cancel-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog">
-            <div className="cancel-dialog__icon" aria-hidden="true">!</div>
-            <div><p className="eyebrow">إجراء حساس</p><h2 id="manager-cancel-title">إلغاء {cancelTarget.kind === 'ORDER' ? 'الطلب الجاري' : 'طلب التصميم'}</h2><p>سيتم تسجيل السبب وإبلاغ العميل مع الاحتفاظ بالسجل الكامل.</p></div>
-            <form onSubmit={(event) => {
-              if (cancelTarget.kind === 'ORDER') void cancelManagerOrder(event, cancelTarget.id);
-              else void cancelManagerRequest(event, cancelTarget.id);
-            }}>
-              <fieldset className="cancel-reasons"><legend>اختر سببًا</legend>
-                {['تعذر التنفيذ', 'معلومات غير مكتملة', 'مشكلة في الدفع', 'طلب العميل الإلغاء'].map((reason) => (<label key={reason}><input name="reason" required type="radio" value={reason} />{reason}</label>))}
-                <label><input name="reason" required type="radio" value="سبب آخر" />سبب آخر</label>
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setCancelTarget(undefined)}
+        >
+          <section
+            aria-labelledby="manager-cancel-title"
+            aria-modal="true"
+            className="cancel-dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="cancel-dialog__icon" aria-hidden="true">
+              !
+            </div>
+            <div>
+              <p className="eyebrow">إجراء حساس</p>
+              <h2 id="manager-cancel-title">
+                إلغاء {cancelTarget.kind === 'ORDER' ? 'الطلب الجاري' : 'طلب التصميم'}
+              </h2>
+              <p>سيتم تسجيل السبب وإبلاغ العميل مع الاحتفاظ بالسجل الكامل.</p>
+            </div>
+            <form
+              onSubmit={(event) => {
+                if (cancelTarget.kind === 'ORDER') void cancelManagerOrder(event, cancelTarget.id);
+                else void cancelManagerRequest(event, cancelTarget.id);
+              }}
+            >
+              <fieldset className="cancel-reasons">
+                <legend>اختر سببًا</legend>
+                {['تعذر التنفيذ', 'معلومات غير مكتملة', 'مشكلة في الدفع', 'طلب العميل الإلغاء'].map(
+                  (reason) => (
+                    <label key={reason}>
+                      <input name="reason" required type="radio" value={reason} />
+                      {reason}
+                    </label>
+                  ),
+                )}
+                <label>
+                  <input name="reason" required type="radio" value="سبب آخر" />
+                  سبب آخر
+                </label>
               </fieldset>
-              <label className="cancel-dialog__note">ملاحظة للعميل (اختياري)<textarea name="details" rows={3} placeholder="اكتب توضيحًا مختصرًا ومحترمًا." /></label>
-              <div className="cancel-dialog__actions"><button className="button button--secondary" onClick={() => setCancelTarget(undefined)} type="button">رجوع</button><button className="button button--danger" disabled={busy} type="submit">تأكيد الإلغاء</button></div>
+              <label className="cancel-dialog__note">
+                ملاحظة للعميل (اختياري)
+                <textarea name="details" rows={3} placeholder="اكتب توضيحًا مختصرًا ومحترمًا." />
+              </label>
+              <div className="cancel-dialog__actions">
+                <button
+                  className="button button--secondary"
+                  onClick={() => setCancelTarget(undefined)}
+                  type="button"
+                >
+                  رجوع
+                </button>
+                <button className="button button--danger" disabled={busy} type="submit">
+                  تأكيد الإلغاء
+                </button>
+              </div>
             </form>
           </section>
         </div>
       ) : null}
-
     </main>
   );
 }

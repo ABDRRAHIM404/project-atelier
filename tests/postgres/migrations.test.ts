@@ -37,7 +37,7 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
          'messaging', 'notifications')
        order by schemaname, tablename`,
     );
-    expect(tables.rows).toHaveLength(64);
+    expect(tables.rows).toHaveLength(65);
     expect(tables.rows).toContainEqual({ schema_name: 'iam', table_name: 'principals' });
     expect(tables.rows).toContainEqual({ schema_name: 'ops', table_name: 'outbox_events' });
   });
@@ -72,9 +72,39 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
         id: '20260718000200',
         transactionSafe: true,
       },
+      {
+        file: '20260721000100_payment_proofs_bucket.sql',
+        id: '20260721000100',
+        transactionSafe: true,
+      },
+      {
+        file: '20260722000100_service_operations_and_custom_designs.sql',
+        id: '20260722000100',
+        transactionSafe: true,
+      },
+      {
+        file: '20260722000200_cancellation_and_notification_fixes.sql',
+        id: '20260722000200',
+        transactionSafe: true,
+      },
+      {
+        file: '20260723000100_quotation_decline_and_message_reads.sql',
+        id: '20260723000100',
+        transactionSafe: true,
+      },
+      {
+        file: '20260723000200_quotation_decline_policy.sql',
+        id: '20260723000200',
+        transactionSafe: true,
+      },
+      {
+        file: '20260723000300_quotation_decline_notification.sql',
+        id: '20260723000300',
+        transactionSafe: true,
+      },
     ]);
 
-    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(5);
+    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(11);
     const history = await client.query<{ name: string; version: string }>(
       `select version, name from supabase_migrations.schema_migrations order by version`,
     );
@@ -84,6 +114,12 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
       { name: 'lean_core_workflow', version: '20260716000300' },
       { name: 'customer_fulfilment_details', version: '20260716000400' },
       { name: 'lean_product_images', version: '20260718000200' },
+      { name: 'payment_proofs_bucket', version: '20260721000100' },
+      { name: 'service_operations_and_custom_designs', version: '20260722000100' },
+      { name: 'cancellation_and_notification_fixes', version: '20260722000200' },
+      { name: 'quotation_decline_and_message_reads', version: '20260723000100' },
+      { name: 'quotation_decline_policy', version: '20260723000200' },
+      { name: 'quotation_decline_notification', version: '20260723000300' },
     ]);
   });
 
@@ -192,7 +228,7 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
          'projects', 'quotes', 'orders', 'payments', 'production', 'fulfilment',
          'messaging', 'notifications')`,
     );
-    expect(rls.rows[0]).toEqual({ forced_count: 64, relation_count: 64, secured_count: 64 });
+    expect(rls.rows[0]).toEqual({ forced_count: 65, relation_count: 65, secured_count: 65 });
   });
 
   it('registers configuration decisions without inventing values', async () => {

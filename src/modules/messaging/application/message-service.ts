@@ -17,6 +17,11 @@ const messageSchema = z
     message: 'A message can reference only one context.',
   });
 
+const readReceiptSchema = z.object({
+  customerId: z.uuid().optional(),
+  readThroughMessageId: z.uuid(),
+});
+
 export type ConversationMessage = Readonly<{
   body: string;
   id: string;
@@ -33,6 +38,7 @@ export type ConversationSummary = Readonly<{
   lastMessageBody: string;
   lastSenderKind: 'CUSTOMER' | 'MANAGER';
   messageCount: number;
+  unreadCount: number;
 }>;
 
 export class MessageService {
@@ -114,7 +120,6 @@ export class MessageService {
     return Object.freeze({ messageId });
   }
 
-
   async listConversations(
     transaction: ActorScopedTransaction,
   ): Promise<readonly ConversationSummary[]> {
@@ -131,6 +136,7 @@ export class MessageService {
         last_message_body: string;
         last_sender_kind: 'CUSTOMER' | 'MANAGER';
         message_count: string;
+        unread_count: string;
       }
     >(
       `select c.customer_id,
@@ -141,7 +147,8 @@ export class MessageService {
               latest.body as last_message_body,
               latest.sender_kind as last_sender_kind,
               latest.sent_at as last_message_at,
-              counts.message_count
+              counts.message_count,
+              counts.unread_count
        from messaging.conversations c
        join iam.customers customer on customer.id = c.customer_id
        join lateral (
@@ -152,7 +159,11 @@ export class MessageService {
          limit 1
        ) latest on true
        join lateral (
-         select count(*)::text as message_count
+         select count(*)::text as message_count,
+                count(*) filter (
+                  where m.sender_kind = 'CUSTOMER'
+                    and (c.manager_last_read_at is null or m.sent_at > c.manager_last_read_at)
+                )::text as unread_count
          from messaging.messages m
          where m.conversation_id = c.id
        ) counts on true
@@ -169,9 +180,87 @@ export class MessageService {
           lastMessageBody: row.last_message_body,
           lastSenderKind: row.last_sender_kind,
           messageCount: Number(row.message_count),
+          unreadCount: Number(row.unread_count),
         }),
       ),
     );
+  }
+
+  async unreadCount(
+    transaction: ActorScopedTransaction,
+  ): Promise<Readonly<{ unreadCount: number }>> {
+    const context = transaction.actorContext;
+    if (context.actor.kind === 'customer' && 'customerId' in context) {
+      const result = await transaction.query<QueryResultRow & { unread_count: string }>(
+        `select count(m.id)::text as unread_count
+         from messaging.conversations c
+         left join messaging.messages m
+           on m.conversation_id = c.id
+          and m.sender_kind = 'MANAGER'
+          and (c.customer_last_read_at is null or m.sent_at > c.customer_last_read_at)
+         where c.customer_id = $1`,
+        [context.customerId],
+      );
+      return Object.freeze({ unreadCount: Number(result.rows[0]?.unread_count ?? 0) });
+    }
+    if (context.actor.kind === 'manager') {
+      const result = await transaction.query<QueryResultRow & { unread_count: string }>(
+        `select count(m.id)::text as unread_count
+         from messaging.conversations c
+         join messaging.messages m
+           on m.conversation_id = c.id
+          and m.sender_kind = 'CUSTOMER'
+          and (c.manager_last_read_at is null or m.sent_at > c.manager_last_read_at)`,
+      );
+      return Object.freeze({ unreadCount: Number(result.rows[0]?.unread_count ?? 0) });
+    }
+    throw new Error('AUTHENTICATION_REQUIRED');
+  }
+
+  async markRead(
+    transaction: ActorScopedTransaction,
+    input: Readonly<{ customerId?: string | undefined; readThroughMessageId: string }>,
+  ): Promise<Readonly<{ unreadCount: number }>> {
+    const parsed = readReceiptSchema.parse(input);
+    const context = transaction.actorContext;
+    let customerId: string;
+    let expectedSender: 'CUSTOMER' | 'MANAGER';
+    let readColumn: 'customer_last_read_at' | 'manager_last_read_at';
+
+    if (context.actor.kind === 'customer' && 'customerId' in context) {
+      customerId = context.customerId;
+      expectedSender = 'MANAGER';
+      readColumn = 'customer_last_read_at';
+    } else if (context.actor.kind === 'manager' && parsed.customerId) {
+      customerId = parsed.customerId;
+      expectedSender = 'CUSTOMER';
+      readColumn = 'manager_last_read_at';
+    } else {
+      throw new Error('AUTHENTICATION_REQUIRED');
+    }
+
+    const read = await transaction.query(
+      `update messaging.conversations c
+       set ${readColumn} =
+         greatest(coalesce(c.${readColumn}, '-infinity'::timestamptz), m.sent_at)
+       from messaging.messages m
+       where c.customer_id = $1
+         and m.id = $2
+         and m.conversation_id = c.id
+         and m.sender_kind = $3
+       returning c.id`,
+      [customerId, parsed.readThroughMessageId, expectedSender],
+    );
+    if (read.rowCount !== 1) throw new Error('RESOURCE_NOT_FOUND');
+
+    if (context.actor.kind === 'customer') return this.unreadCount(transaction);
+    const conversations = await this.listConversations(transaction);
+    return Object.freeze({
+      unreadCount: conversations.reduce(
+        (total, conversation) => total + conversation.unreadCount,
+        0,
+      ),
+    });
   }
 
   async list(

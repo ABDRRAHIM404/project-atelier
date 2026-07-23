@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, type FormEventHandler } from 'react';
+import { useEffect, useRef, type FormEventHandler, type KeyboardEventHandler } from 'react';
 
 import { formatDate } from './client-api';
 
@@ -32,6 +32,19 @@ export function ConversationChat({
 }: ConversationChatProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
+  const sendOnEnter: KeyboardEventHandler<HTMLTextAreaElement> = (event) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    if (busy) return;
+    if (!event.currentTarget.value.trim()) {
+      event.currentTarget.setCustomValidity('اكتب رسالة قبل الإرسال.');
+      event.currentTarget.reportValidity();
+      return;
+    }
+    event.currentTarget.setCustomValidity('');
+    event.currentTarget.form?.requestSubmit();
+  };
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages]);
@@ -58,10 +71,7 @@ export function ConversationChat({
           messages.map((message) => {
             const own = message.senderKind === currentActor;
             return (
-              <article
-                className={`chat-bubble${own ? ' chat-bubble--own' : ''}`}
-                key={message.id}
-              >
+              <article className={`chat-bubble${own ? ' chat-bubble--own' : ''}`} key={message.id}>
                 <p>{message.body}</p>
                 <small>{formatDate(message.sentAt)}</small>
               </article>
@@ -78,6 +88,8 @@ export function ConversationChat({
         <textarea
           id={`chat-message-${currentActor.toLowerCase()}`}
           name="body"
+          onInput={(event) => event.currentTarget.setCustomValidity('')}
+          onKeyDown={sendOnEnter}
           placeholder="اكتب رسالة..."
           required
           rows={1}

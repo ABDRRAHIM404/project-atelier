@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ActorScopedTransaction } from '../../../platform/database';
 
 const submissionSchema = z.object({
-  declaredReference: z.string().trim().max(160).default(''),
+  declaredReference: z.string().trim().min(2).max(160),
   orderId: z.uuid(),
   proofChecksumSha256: z
     .string()
@@ -56,7 +56,7 @@ export class PaymentService {
   async submitProof(
     transaction: ActorScopedTransaction,
     input: Readonly<{
-      declaredReference?: string | undefined;
+      declaredReference: string;
       orderId: string;
       proofChecksumSha256?: string | undefined;
       proofDisplayFilename: string;

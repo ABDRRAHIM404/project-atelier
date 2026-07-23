@@ -492,23 +492,13 @@ export class QuotationService {
       [randomUUID(), input.revisionId, actor.customerId, reason],
     );
     await transaction.query(
-      `update quotes.quotation_revisions set state = 'DECLINED', updated_at = clock_timestamp(),
-              record_version = record_version + 1 where id = $1`,
-      [input.revisionId],
-    );
-    await transaction.query(
       `update quotes.quotations set lifecycle = 'DECLINED', updated_at = clock_timestamp(),
               record_version = record_version + 1 where id = $1`,
       [row.quotation_id],
     );
     await transaction.query(
-      `insert into notifications.notifications
-         (recipient_principal_id, event_type, resource_type, resource_id, title_ar, body_ar, event_key)
-       select m.principal_id, 'QUOTATION_DECLINED', 'QUOTATION', $1,
-              'رفض العميل عرض السعر', $2, $3
-       from iam.managers m where m.is_active
-       on conflict (recipient_principal_id, event_key) do nothing`,
-      [row.quotation_id, reason, `quotation:${input.revisionId}:declined`],
+      `select notifications.notify_managers_of_quotation_decline($1, $2, $3)`,
+      [row.quotation_id, input.revisionId, reason],
     );
     return Object.freeze({ quotationId: row.quotation_id });
   }

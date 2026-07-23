@@ -32,7 +32,7 @@ export async function POST(request: Request, context: Context): Promise<Response
       if (upload.error) throw new Error(upload.error.message);
       try {
         return await payments.submitProof(transaction, {
-          declaredReference: String(form.get('declaredReference') ?? '').trim() || undefined,
+          declaredReference: String(form.get('declaredReference') ?? '').trim(),
           orderId,
           proofDisplayFilename: file.name,
           proofMediaType: file.type as 'application/pdf' | 'image/jpeg' | 'image/png',

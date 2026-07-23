@@ -70,6 +70,30 @@ export async function applyVerifiedMigrations(client, projectRoot = process.cwd(
     await client.query(
       'alter table supabase_migrations.schema_migrations add column if not exists name text',
     );
+    // Supabase provides these roles and this schema in hosted environments.
+    // The local PostgreSQL harness supplies only the contracts used by migrations.
+    await client.query(
+      `do $bootstrap$
+       begin
+         if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+           create role authenticated nologin;
+         end if;
+         if not exists (select 1 from pg_roles where rolname = 'service_role') then
+           create role service_role nologin;
+         end if;
+       end
+       $bootstrap$`,
+    );
+    await client.query('create schema if not exists storage');
+    await client.query(
+      `create table if not exists storage.buckets (
+         id text primary key,
+         name text not null unique,
+         public boolean not null default false,
+         file_size_limit bigint,
+         allowed_mime_types text[]
+       )`,
+    );
     await client.query('commit');
   } catch (error) {
     await client.query('rollback');
