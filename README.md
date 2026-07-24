@@ -4,7 +4,7 @@ Arabic-first, RTL custom-furniture platform for one Saudi furniture business. Cu
 
 ## Current delivery status
 
-The repository is a **lean Version 1 local release candidate**. The complete commercial workflow is implemented and verified against PostgreSQL:
+The repository is a **lean Version 1 deployed stabilization build** available at [project-atelier-v1.vercel.app](https://project-atelier-v1.vercel.app). The complete commercial workflow is implemented and verified locally against PostgreSQL:
 
 1. Arabic showroom and product search.
 2. Customer multi-item project draft and immutable submission.
@@ -17,7 +17,7 @@ The repository is a **lean Version 1 local release candidate**. The complete com
 9. Delivery/pickup proof metadata and completion.
 10. Customer and manager dashboards, notifications, and manager catalog drafts.
 
-Production-connected authentication, private file bytes, malware scanning, email delivery, and deployment remain disabled until the Product Owner completes `OWNER_PROVIDER_HANDOFF.md`.
+Clerk, Supabase Storage, and Vercel are connected in the current build. Malware scanning, final Manager authentication hardening, external email evidence, and the complete launch gate remain pending.
 
 ## Run the local demo
 
@@ -65,13 +65,13 @@ npm run test:e2e:workflow
 - Production cannot begin before manual verified payment.
 - Accepted quotation and order-item history is immutable.
 - Customer records are protected by actor-scoped transactions and forced RLS.
-- Private proof endpoints fail closed unless `PRIVATE_UPLOADS_READY=true`.
-- Setting that flag is allowed only after the secure S3 upload/finalize/scan path is connected and verified.
+- Active uploads use Supabase Storage; malware scanning and GuardDuty are not implemented.
+- Customer and payment uploads are not launch-ready until the approved scan, authorization, and clean-file lifecycle is verified.
 - Demo seed/auth are blocked in staging and production.
 
 ## Project references
 
-- `LEAN_V1_IMPLEMENTATION_PLAN.md` — active delivery plan.
-- `LEAN_V1_DELIVERY_REPORT.md` — implemented evidence and remaining release blockers.
-- `OWNER_PROVIDER_HANDOFF.md` — Supabase, Clerk, AWS, Vercel, Resend, and MCP work.
-- `MASTER_PRD.md`, `STATE_MACHINES.md`, and `QUALITY_GATES.md` — authoritative product and quality contracts.
+- `PROJECT_KNOWLEDGE.md` — authoritative product knowledge and Product Owner decisions.
+- `GOAL.md` — current delivery objective and remaining launch work.
+- `QUALITY_GATES.md` — mandatory quality and release requirements.
+- `AGENTS.md` — repository working agreement.

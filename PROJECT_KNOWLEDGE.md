@@ -41,17 +41,17 @@ If any future document contradicts this file, **PROJECT_KNOWLEDGE.md takes prece
 
 ## Approved Planning Amendments
 
-The explicit planning instructions recorded in `MASTER_PRD.md` refine release phases without removing capabilities from the long-term product:
+The approved planning amendments below refine release phases without removing capabilities from the long-term product:
 
-- Version 1 is the complete core transaction defined in `MASTER_PRD.md` Section 5.
+- Version 1 is the complete core transaction described by the Product Owner decisions in this document.
 - AI, advanced analytics, push notifications, Reviews, Favorites, and Saved Designs are proposed for Version 1.1 rather than Version 1.
 - 360° media is deferred to Version 1.1 because the required production asset workflow is not documented; basic images, gallery, and zoom remain Version 1.
 - Advanced comparison is proposed for Version 1.2 or later.
-- `DECISION_WORKSHOP.md` is the canonical Accepted/partial decision register. The strict review found no true remaining Architecture Blocker; Business Policy (`BP-*`), Configuration (`CFG-*`), and Implementation Detail (`IMP-*`) items remain tracked at their appropriate gates. Recommendations are not approved beyond Product Owner choices.
+- The Accepted and partial decisions recorded in this document are authoritative. The strict review found no true remaining Architecture Blocker; unresolved Business Policy, Configuration, and Implementation Detail items remain required at their appropriate gates.
 
 ### Product Owner Decisions — 2026-07-16
 
-`DECISION_FORM.md` is authoritative for `DW-001` through `DW-014`. The following decisions supersede conflicting older statements below:
+The following Product Owner decisions for `DW-001` through `DW-014` are authoritative and supersede conflicting older statements below:
 
 - An Order is created when the Customer accepts the current quotation; production still requires manual Payment Verification.
 - Submitted content locks; sent quotation revisions are numbered and immutable; only the current revision may be accepted; changes and declines are recorded.
@@ -69,7 +69,20 @@ The explicit planning instructions recorded in `MASTER_PRD.md` refine release ph
 - The design system follows an accessible warm-neutral, paired-type, consistent, restrained-motion, RTL-first direction reflecting premium Saudi interior brands.
 - The recommended baseline-derived outcome measures are Accepted with average quotation preparation time, Customer satisfaction, on-time delivery rate, Order completion rate, and production delay rate added.
 
-Where an older section below conflicts with these amendments, the Product Owner decisions above and the current `MASTER_PRD.md` control. Original long-term feature intent remains unless explicitly re-phased or removed from Version 1.
+Where an older section below conflicts with these amendments, the Product Owner decisions above control. Original long-term feature intent remains unless explicitly re-phased or removed from Version 1.
+
+### Current Product and Delivery Amendments — 2026-07-23
+
+The Product Owner confirmed the following behavior and implementation status after the initial planning package:
+
+- A Customer or Manager may cancel a Submitted Request before an Order exists.
+- A Customer or Manager may cancel an Order unless it is already `COMPLETED` or `CANCELLED`. The financial, material, refund, and recovery consequences of cancellation after Payment Verification or Production starts remain deferred until launch preparation.
+- Custom Design is a permanent second request-entry path. It creates a `CUSTOM_DESIGN` request and then uses the same Quotation, Order, Payment, Production, and Fulfilment workflow as catalog-originated requests.
+- Archiving is organizational only. It sets `archived_at` and never cancels or deletes a record. Orders are archivable when `CANCELLED` or `COMPLETED`; Requests are archivable when `CANCELLED`, `REJECTED`, `COMPLETED`, or `QUOTED`.
+- The Customer profile stores full name, phone, city, and optional address. Each Delivery Order stores phone, city, district, address, optional map URL, and delivery notes. Pickup stores phone and optional pickup notes.
+- The active file implementation uses Supabase Storage for Product images, Custom Design files, and Payment proofs. The S3 adapter is not used by these flows; malware scanning and GuardDuty are not implemented and remain launch-hardening work.
+- Clerk is the active identity provider. Sensitive Manager operations require the internal `manager_mfa` assurance label. The current resolver assigns that label to Manager sessions without a separate MFA upgrade trigger; production security hardening remains launch work.
+- The application is deployed on Vercel at `https://project-atelier-v1.vercel.app`, with stabilization and issue correction in progress.
 
 ---
 
@@ -1141,7 +1154,7 @@ Version 1 includes:
 - High-quality images.
 - Gallery and zoom functionality.
 
-Interactive 360° viewing is deferred to Version 1.1 and requires the asset-workflow activation decision in `DECISION_WORKSHOP.md`.
+Interactive 360° viewing is deferred to Version 1.1 and requires an explicit Product Owner asset-workflow activation decision.
 
 Future versions may support:
 

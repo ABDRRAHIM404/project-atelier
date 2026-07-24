@@ -277,10 +277,18 @@ describe('lean V1 commercial workflow', () => {
       ),
     ).resolves.toEqual({ quotationId: quote.id });
 
-    const result = await owner.query<{ event_type: string; lifecycle: string; state: string }>(
-      `select n.event_type, q.lifecycle, r.state
+    const result = await owner.query<{
+      event_type: string;
+      lifecycle: string;
+      outcome: string;
+      reason: string;
+      state: string;
+    }>(
+      `select n.event_type, q.lifecycle, r.state, response.outcome, response.reason
        from quotes.quotations q
        join quotes.quotation_revisions r on r.quotation_id = q.id
+       join quotes.quotation_responses response
+         on response.revision_id = r.id and response.customer_id = q.customer_id
        join notifications.notifications n
          on n.resource_id = q.id and n.event_type = 'QUOTATION_DECLINED'
        where q.id = $1 and r.id = $2`,
@@ -289,6 +297,8 @@ describe('lean V1 commercial workflow', () => {
     expect(result.rows[0]).toEqual({
       event_type: 'QUOTATION_DECLINED',
       lifecycle: 'DECLINED',
+      outcome: 'DECLINED',
+      reason: 'السعر مرتفع',
       state: 'SENT',
     });
   });

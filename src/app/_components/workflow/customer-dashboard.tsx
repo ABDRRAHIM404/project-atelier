@@ -312,6 +312,16 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     }
   }
 
+  function changeTab(tab: CustomerTab) {
+    setOrderDetail(undefined);
+    setActiveTab(tab);
+  }
+
+  function changeRequestFilter(filter: 'ACTIVE' | 'CANCELLED' | 'HISTORY') {
+    setOrderDetail(undefined);
+    setRequestFilter(filter);
+  }
+
   async function submitDirectRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -536,6 +546,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
   }
 
   async function openNotifications() {
+    setOrderDetail(undefined);
     setActiveTab('notifications');
     const unread = notifications.filter((notification) => !notification.read);
     if (unread.length === 0) return;
@@ -742,7 +753,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           aria-controls="customer-panel-requests"
           aria-selected={activeTab === 'requests'}
           className={`customer-tab${activeTab === 'requests' ? ' customer-tab--active' : ''}`}
-          onClick={() => setActiveTab('requests')}
+          onClick={() => changeTab('requests')}
           role="tab"
           type="button"
         >
@@ -752,7 +763,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           aria-controls="customer-panel-orders"
           aria-selected={activeTab === 'orders'}
           className={`customer-tab${activeTab === 'orders' ? ' customer-tab--active' : ''}`}
-          onClick={() => setActiveTab('orders')}
+          onClick={() => changeTab('orders')}
           role="tab"
           type="button"
         >
@@ -765,7 +776,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           aria-controls="customer-panel-messages"
           aria-selected={activeTab === 'messages'}
           className={`customer-tab${activeTab === 'messages' ? ' customer-tab--active' : ''}`}
-          onClick={() => setActiveTab('messages')}
+          onClick={() => changeTab('messages')}
           role="tab"
           type="button"
         >
@@ -931,7 +942,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
               className={
                 requestFilter === 'ACTIVE' ? 'saved-view saved-view--active' : 'saved-view'
               }
-              onClick={() => setRequestFilter('ACTIVE')}
+              onClick={() => changeRequestFilter('ACTIVE')}
               type="button"
             >
               النشطة
@@ -940,7 +951,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
               className={
                 requestFilter === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'
               }
-              onClick={() => setRequestFilter('CANCELLED')}
+              onClick={() => changeRequestFilter('CANCELLED')}
               type="button"
             >
               الملغاة
@@ -949,7 +960,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
               className={
                 requestFilter === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'
               }
-              onClick={() => setRequestFilter('HISTORY')}
+              onClick={() => changeRequestFilter('HISTORY')}
               type="button"
             >
               السجل
@@ -1166,305 +1177,316 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
           </div>
 
           {orderDetail ? (
-            <article className="order-detail" aria-labelledby="order-detail-title">
-              <div className="workspace-panel__heading">
-                <div>
-                  <p className="eyebrow">تفاصيل الطلب</p>
-                  <h3 id="order-detail-title">{orderDetail.displayReference}</h3>
-                </div>
-                <button
-                  className="plain-button"
-                  onClick={() => setOrderDetail(undefined)}
-                  type="button"
-                >
-                  إغلاق
-                </button>
-              </div>
-              <div className="workflow-stack">
-                {orderDetail.items.map((item) => (
-                  <div className="line-item" key={item.id}>
-                    <span>
-                      {item.sequence}. {productName(item.itemSnapshot)}
-                    </span>
-                    <strong>{formatMoney(item.itemTotalMinor, orderDetail.currencyCode)}</strong>
+            <div
+              className="modal-backdrop"
+              onMouseDown={() => setOrderDetail(undefined)}
+              role="presentation"
+            >
+              <article
+                aria-labelledby="order-detail-title"
+                aria-modal="true"
+                className="order-detail order-detail-dialog"
+                onMouseDown={(event) => event.stopPropagation()}
+                role="dialog"
+              >
+                <div className="workspace-panel__heading">
+                  <div>
+                    <p className="eyebrow">تفاصيل الطلب</p>
+                    <h3 id="order-detail-title">{orderDetail.displayReference}</h3>
                   </div>
-                ))}
-              </div>
-              {orderDetail.lifecycleState !== 'CANCELLED' ? (
-                <ol className="payment-steps" aria-label="خطوات تأكيد الطلب والدفع">
-                  <li className="payment-step payment-step--complete">
-                    <span aria-hidden="true">✓</span>
-                    <div>
-                      <small>الخطوة 1 من 3</small>
-                      <strong>قبول السعر</strong>
-                    </div>
-                  </li>
-                  <li
-                    className={`payment-step${
-                      orderDetail.fulfilmentDetailsConfirmedAt
-                        ? ' payment-step--complete'
-                        : ' payment-step--active'
-                    }`}
+                  <button
+                    className="plain-button"
+                    onClick={() => setOrderDetail(undefined)}
+                    type="button"
                   >
-                    <span aria-hidden="true">
-                      {orderDetail.fulfilmentDetailsConfirmedAt ? '✓' : '2'}
-                    </span>
-                    <div>
-                      <small>الخطوة 2 من 3</small>
-                      <strong>بيانات الاستلام</strong>
-                    </div>
-                  </li>
-                  <li
-                    className={`payment-step${
-                      paymentStepCompleted
-                        ? ' payment-step--complete'
-                        : orderDetail.fulfilmentDetailsConfirmedAt
-                          ? ' payment-step--active'
-                          : ''
-                    }`}
-                  >
-                    <span aria-hidden="true">{paymentStepCompleted ? '✓' : '3'}</span>
-                    <div>
-                      <small>الخطوة 3 من 3</small>
-                      <strong>التحويل والإثبات</strong>
-                    </div>
-                  </li>
-                </ol>
-              ) : null}
-              {orderDetail.lifecycleState === 'CANCELLED' ? (
-                <div className="decision-box decision-box--cancelled" role="status">
-                  <strong>تم إلغاء هذا الطلب</strong>
-                  <span>{orderDetail.cancellationReason ?? 'تم حفظه ضمن الطلبات الملغاة.'}</span>
-                </div>
-              ) : !orderDetail.fulfilmentDetailsConfirmedAt ? (
-                <form
-                  className="workflow-form"
-                  onSubmit={(event) => saveFulfilmentDetails(event, orderDetail.id)}
-                >
-                  <h4>تفاصيل الاستلام</h4>
-                  <p className="field-help">
-                    أكد بيانات التواصل والاستلام المعتمدة في عرض السعر قبل إرسال إثبات التحويل.
-                  </p>
-                  <div className="workflow-form__full decision-box">
-                    <strong>طريقة الاستلام المعتمدة</strong>
-                    <span>
-                      {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'توصيل' : 'استلام من الورشة'}
-                    </span>
-                    <input name="method" type="hidden" value={orderDetail.fulfilmentMethod} />
-                  </div>
-                  <label>
-                    رقم الهاتف
-                    <input
-                      defaultValue={profile.phoneNumber}
-                      name="phoneNumber"
-                      required
-                      minLength={7}
-                      inputMode="tel"
-                    />
-                  </label>
-                  {orderDetail.fulfilmentMethod === 'DELIVERY' ? (
-                    <>
-                      <label>
-                        المدينة
-                        <input defaultValue={profile.city} name="city" required minLength={2} />
-                      </label>
-                      <label>
-                        الحي
-                        <input name="district" required minLength={2} />
-                      </label>
-                      <label className="workflow-form__full">
-                        العنوان الكامل
-                        <input
-                          defaultValue={profile.address}
-                          name="address"
-                          required
-                          minLength={5}
-                        />
-                      </label>
-                      <label className="workflow-form__full">
-                        رابط الموقع على الخريطة (اختياري)
-                        <input name="mapUrl" type="url" placeholder="https://maps.google.com/..." />
-                      </label>
-                      <label className="workflow-form__full">
-                        ملاحظات التوصيل (اختياري)
-                        <textarea name="deliveryNotes" rows={2} />
-                      </label>
-                    </>
-                  ) : (
-                    <label className="workflow-form__full">
-                      ملاحظات الاستلام (اختياري)
-                      <textarea name="pickupNotes" rows={2} />
-                    </label>
-                  )}
-                  <button className="button" disabled={busy} type="submit">
-                    حفظ تفاصيل الاستلام
+                    إغلاق
                   </button>
-                </form>
-              ) : (
-                <div className="decision-box decision-box--success" role="status">
-                  تم تأكيد تفاصيل{' '}
-                  {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'التوصيل' : 'الاستلام'}.
                 </div>
-              )}
-              {orderDetail.fulfilmentDetailsConfirmedAt && bankDetails ? (
-                <section className="bank-details" aria-labelledby="bank-details-title">
-                  <h4 id="bank-details-title">بيانات التحويل البنكي</h4>
-                  <p className="field-help">انسخ البيانات بدقة عند تنفيذ التحويل.</p>
-                  <dl className="detail-list">
-                    <div>
-                      <dt>البنك</dt>
-                      <dd className="copyable-value">
-                        <span>{bankName}</span>
-                        <button
-                          onClick={() => void copyBankValue(bankName, 'اسم البنك')}
-                          type="button"
-                        >
-                          نسخ
-                        </button>
-                      </dd>
+                <div className="workflow-stack">
+                  {orderDetail.items.map((item) => (
+                    <div className="line-item" key={item.id}>
+                      <span>
+                        {item.sequence}. {productName(item.itemSnapshot)}
+                      </span>
+                      <strong>{formatMoney(item.itemTotalMinor, orderDetail.currencyCode)}</strong>
                     </div>
-                    <div>
-                      <dt>اسم صاحب الحساب</dt>
-                      <dd className="copyable-value">
-                        <span>{accountHolder}</span>
-                        <button
-                          onClick={() => void copyBankValue(accountHolder, 'اسم صاحب الحساب')}
-                          type="button"
-                        >
-                          نسخ
-                        </button>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>رقم الحساب البنكي (RIB)</dt>
-                      <dd className="copyable-value" dir="ltr">
-                        <span>{rib}</span>
-                        <button
-                          onClick={() => void copyBankValue(rib, 'رقم الحساب البنكي')}
-                          type="button"
-                        >
-                          نسخ
-                        </button>
-                      </dd>
-                    </div>
-                    {iban ? (
+                  ))}
+                </div>
+                {orderDetail.lifecycleState !== 'CANCELLED' ? (
+                  <ol className="payment-steps" aria-label="خطوات تأكيد الطلب والدفع">
+                    <li className="payment-step payment-step--complete">
+                      <span aria-hidden="true">✓</span>
                       <div>
-                        <dt>IBAN</dt>
-                        <dd className="copyable-value" dir="ltr">
-                          <span>{iban}</span>
-                          <button onClick={() => void copyBankValue(iban, 'IBAN')} type="button">
+                        <small>الخطوة 1 من 3</small>
+                        <strong>قبول السعر</strong>
+                      </div>
+                    </li>
+                    <li
+                      className={`payment-step${
+                        orderDetail.fulfilmentDetailsConfirmedAt
+                          ? ' payment-step--complete'
+                          : ' payment-step--active'
+                      }`}
+                    >
+                      <span aria-hidden="true">
+                        {orderDetail.fulfilmentDetailsConfirmedAt ? '✓' : '2'}
+                      </span>
+                      <div>
+                        <small>الخطوة 2 من 3</small>
+                        <strong>بيانات الاستلام</strong>
+                      </div>
+                    </li>
+                    <li
+                      className={`payment-step${
+                        paymentStepCompleted
+                          ? ' payment-step--complete'
+                          : orderDetail.fulfilmentDetailsConfirmedAt
+                            ? ' payment-step--active'
+                            : ''
+                      }`}
+                    >
+                      <span aria-hidden="true">{paymentStepCompleted ? '✓' : '3'}</span>
+                      <div>
+                        <small>الخطوة 3 من 3</small>
+                        <strong>التحويل والإثبات</strong>
+                      </div>
+                    </li>
+                  </ol>
+                ) : null}
+                {orderDetail.lifecycleState === 'CANCELLED' ? (
+                  <div className="decision-box decision-box--cancelled" role="status">
+                    <strong>تم إلغاء هذا الطلب</strong>
+                    <span>{orderDetail.cancellationReason ?? 'تم حفظه ضمن الطلبات الملغاة.'}</span>
+                  </div>
+                ) : !orderDetail.fulfilmentDetailsConfirmedAt ? (
+                  <form
+                    className="workflow-form"
+                    onSubmit={(event) => saveFulfilmentDetails(event, orderDetail.id)}
+                  >
+                    <h4>تفاصيل الاستلام</h4>
+                    <p className="field-help">
+                      أكد بيانات التواصل والاستلام المعتمدة في عرض السعر قبل إرسال إثبات التحويل.
+                    </p>
+                    <div className="workflow-form__full decision-box">
+                      <strong>طريقة الاستلام المعتمدة</strong>
+                      <span>
+                        {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'توصيل' : 'استلام من الورشة'}
+                      </span>
+                      <input name="method" type="hidden" value={orderDetail.fulfilmentMethod} />
+                    </div>
+                    <label>
+                      رقم الهاتف
+                      <input
+                        defaultValue={profile.phoneNumber}
+                        name="phoneNumber"
+                        required
+                        minLength={7}
+                        inputMode="tel"
+                      />
+                    </label>
+                    {orderDetail.fulfilmentMethod === 'DELIVERY' ? (
+                      <>
+                        <label>
+                          المدينة
+                          <input defaultValue={profile.city} name="city" required minLength={2} />
+                        </label>
+                        <label>
+                          الحي
+                          <input name="district" required minLength={2} />
+                        </label>
+                        <label className="workflow-form__full">
+                          العنوان الكامل
+                          <input
+                            defaultValue={profile.address}
+                            name="address"
+                            required
+                            minLength={5}
+                          />
+                        </label>
+                        <label className="workflow-form__full">
+                          رابط الموقع على الخريطة (اختياري)
+                          <input name="mapUrl" type="url" placeholder="https://maps.google.com/..." />
+                        </label>
+                        <label className="workflow-form__full">
+                          ملاحظات التوصيل (اختياري)
+                          <textarea name="deliveryNotes" rows={2} />
+                        </label>
+                      </>
+                    ) : (
+                      <label className="workflow-form__full">
+                        ملاحظات الاستلام (اختياري)
+                        <textarea name="pickupNotes" rows={2} />
+                      </label>
+                    )}
+                    <button className="button" disabled={busy} type="submit">
+                      حفظ تفاصيل الاستلام
+                    </button>
+                  </form>
+                ) : (
+                  <div className="decision-box decision-box--success" role="status">
+                    تم تأكيد تفاصيل{' '}
+                    {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'التوصيل' : 'الاستلام'}.
+                  </div>
+                )}
+                {orderDetail.fulfilmentDetailsConfirmedAt && bankDetails ? (
+                  <section className="bank-details" aria-labelledby="bank-details-title">
+                    <h4 id="bank-details-title">بيانات التحويل البنكي</h4>
+                    <p className="field-help">انسخ البيانات بدقة عند تنفيذ التحويل.</p>
+                    <dl className="detail-list">
+                      <div>
+                        <dt>البنك</dt>
+                        <dd className="copyable-value">
+                          <span>{bankName}</span>
+                          <button
+                            onClick={() => void copyBankValue(bankName, 'اسم البنك')}
+                            type="button"
+                          >
                             نسخ
                           </button>
                         </dd>
                       </div>
-                    ) : null}
-                    <div>
-                      <dt>المبلغ</dt>
-                      <dd className="copyable-value">
-                        <span>{formatMoney(orderDetail.totalMinor, orderDetail.currencyCode)}</span>
-                        <button
-                          onClick={() =>
-                            void copyBankValue(
-                              formatMoney(orderDetail.totalMinor, orderDetail.currencyCode),
-                              'المبلغ',
-                            )
-                          }
-                          type="button"
-                        >
-                          نسخ
-                        </button>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>مرجع الطلب</dt>
-                      <dd className="copyable-value" dir="ltr">
-                        <span>{orderDetail.displayReference}</span>
-                        <button
-                          onClick={() =>
-                            void copyBankValue(orderDetail.displayReference, 'مرجع الطلب')
-                          }
-                          type="button"
-                        >
-                          نسخ
-                        </button>
-                      </dd>
-                    </div>
-                  </dl>
-                </section>
-              ) : null}
-              {orderDetail.lifecycleState !== 'CANCELLED' &&
-              orderDetail.fulfilmentDetailsConfirmedAt &&
-              ['AWAITING_SUBMISSION', 'REJECTED'].includes(orderDetail.paymentState) ? (
-                <form
-                  className="workflow-form"
-                  onSubmit={(event) => submitPayment(event, orderDetail.id)}
-                >
-                  <h4>إرسال إيصال التحويل</h4>
-                  <p className="field-help">
-                    ارفع صورة أو ملف PDF لإيصال التحويل، ثم أرسله للمراجعة.
-                  </p>
-                  <div className="workflow-form__full">
-                    <input
-                      accept="image/jpeg,image/png,application/pdf"
-                      hidden
-                      name="receipt"
-                      onChange={(event) => chooseReceipt(event.currentTarget.files?.[0])}
-                      ref={receiptInputRef}
-                      required
-                      type="file"
-                    />
-                    <section
-                      className={`receipt-uploader${receiptDragging ? ' receipt-uploader--dragging' : ''}`}
-                      onDragEnter={(event) => {
-                        event.preventDefault();
-                        setReceiptDragging(true);
-                      }}
-                      onDragLeave={(event) => {
-                        event.preventDefault();
-                        setReceiptDragging(false);
-                      }}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        setReceiptDragging(false);
-                        chooseReceipt(event.dataTransfer.files[0]);
-                      }}
-                    >
-                      <span className="receipt-uploader__icon" aria-hidden="true">
-                        ↑
-                      </span>
                       <div>
-                        <strong>رفع إيصال التحويل</strong>
-                        <p>اسحب الإيصال هنا أو اضغط لاختياره من جهازك.</p>
-                        <small>JPG، PNG، PDF · الحد الأقصى 10 ميغابايت</small>
+                        <dt>اسم صاحب الحساب</dt>
+                        <dd className="copyable-value">
+                          <span>{accountHolder}</span>
+                          <button
+                            onClick={() => void copyBankValue(accountHolder, 'اسم صاحب الحساب')}
+                            type="button"
+                          >
+                            نسخ
+                          </button>
+                        </dd>
                       </div>
-                      <button
-                        className="button button--secondary button--small"
-                        onClick={() => receiptInputRef.current?.click()}
-                        type="button"
+                      <div>
+                        <dt>رقم الحساب البنكي (RIB)</dt>
+                        <dd className="copyable-value" dir="ltr">
+                          <span>{rib}</span>
+                          <button
+                            onClick={() => void copyBankValue(rib, 'رقم الحساب البنكي')}
+                            type="button"
+                          >
+                            نسخ
+                          </button>
+                        </dd>
+                      </div>
+                      {iban ? (
+                        <div>
+                          <dt>IBAN</dt>
+                          <dd className="copyable-value" dir="ltr">
+                            <span>{iban}</span>
+                            <button onClick={() => void copyBankValue(iban, 'IBAN')} type="button">
+                              نسخ
+                            </button>
+                          </dd>
+                        </div>
+                      ) : null}
+                      <div>
+                        <dt>المبلغ</dt>
+                        <dd className="copyable-value">
+                          <span>{formatMoney(orderDetail.totalMinor, orderDetail.currencyCode)}</span>
+                          <button
+                            onClick={() =>
+                              void copyBankValue(
+                                formatMoney(orderDetail.totalMinor, orderDetail.currencyCode),
+                                'المبلغ',
+                              )
+                            }
+                            type="button"
+                          >
+                            نسخ
+                          </button>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>مرجع الطلب</dt>
+                        <dd className="copyable-value" dir="ltr">
+                          <span>{orderDetail.displayReference}</span>
+                          <button
+                            onClick={() =>
+                              void copyBankValue(orderDetail.displayReference, 'مرجع الطلب')
+                            }
+                            type="button"
+                          >
+                            نسخ
+                          </button>
+                        </dd>
+                      </div>
+                    </dl>
+                  </section>
+                ) : null}
+                {orderDetail.lifecycleState !== 'CANCELLED' &&
+                orderDetail.fulfilmentDetailsConfirmedAt &&
+                ['AWAITING_SUBMISSION', 'REJECTED'].includes(orderDetail.paymentState) ? (
+                  <form
+                    className="workflow-form"
+                    onSubmit={(event) => submitPayment(event, orderDetail.id)}
+                  >
+                    <h4>إرسال إيصال التحويل</h4>
+                    <p className="field-help">
+                      ارفع صورة أو ملف PDF لإيصال التحويل، ثم أرسله للمراجعة.
+                    </p>
+                    <div className="workflow-form__full">
+                      <input
+                        accept="image/jpeg,image/png,application/pdf"
+                        hidden
+                        name="receipt"
+                        onChange={(event) => chooseReceipt(event.currentTarget.files?.[0])}
+                        ref={receiptInputRef}
+                        required
+                        type="file"
+                      />
+                      <section
+                        className={`receipt-uploader${receiptDragging ? ' receipt-uploader--dragging' : ''}`}
+                        onDragEnter={(event) => {
+                          event.preventDefault();
+                          setReceiptDragging(true);
+                        }}
+                        onDragLeave={(event) => {
+                          event.preventDefault();
+                          setReceiptDragging(false);
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          setReceiptDragging(false);
+                          chooseReceipt(event.dataTransfer.files[0]);
+                        }}
                       >
-                        {receiptFile ? 'استبدال الملف' : 'اختيار الملف'}
-                      </button>
-                    </section>
-                    {receiptFile ? (
-                      <article className="receipt-file-card">
-                        <span className="receipt-file-card__type">
-                          {receiptFile.type === 'application/pdf' ? 'PDF' : 'صورة'}
+                        <span className="receipt-uploader__icon" aria-hidden="true">
+                          ↑
                         </span>
                         <div>
-                          <strong>{receiptFile.name}</strong>
-                          <small>{(receiptFile.size / 1024 / 1024).toFixed(1)} ميغابايت</small>
+                          <strong>رفع إيصال التحويل</strong>
+                          <p>اسحب الإيصال هنا أو اضغط لاختياره من جهازك.</p>
+                          <small>JPG، PNG، PDF · الحد الأقصى 10 ميغابايت</small>
                         </div>
                         <button
-                          className="plain-button plain-button--danger"
-                          onClick={() => {
-                            setReceiptFile(undefined);
-                            if (receiptInputRef.current) receiptInputRef.current.value = '';
-                          }}
+                          className="button button--secondary button--small"
+                          onClick={() => receiptInputRef.current?.click()}
                           type="button"
                         >
-                          حذف
+                          {receiptFile ? 'استبدال الملف' : 'اختيار الملف'}
                         </button>
+                      </section>
+                      {receiptFile ? (
+                        <article className="receipt-file-card">
+                          <span className="receipt-file-card__type">
+                            {receiptFile.type === 'application/pdf' ? 'PDF' : 'صورة'}
+                          </span>
+                          <div>
+                            <strong>{receiptFile.name}</strong>
+                            <small>{(receiptFile.size / 1024 / 1024).toFixed(1)} ميغابايت</small>
+                          </div>
+                          <button
+                            className="plain-button plain-button--danger"
+                            onClick={() => {
+                              setReceiptFile(undefined);
+                              if (receiptInputRef.current) receiptInputRef.current.value = '';
+                            }}
+                            type="button"
+                          >
+                            حذف
+                          </button>
                       </article>
                     ) : null}
                   </div>
@@ -1494,7 +1516,8 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                     : `رُفض الإثبات: ${decision.reason}`}
                 </div>
               ))}
-            </article>
+              </article>
+            </div>
           ) : null}
         </section>
 

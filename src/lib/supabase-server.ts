@@ -39,7 +39,7 @@ export function paymentProofStoragePath(orderId: string, file: File): string {
     .update(`${orderId}:${file.name}:${Date.now()}`)
     .digest('hex')
     .slice(0, 16);
-  return `orders/${orderId}/${uuid}.${extension}`;
+  return `private/payment-proofs/${orderId}/${uuid}.${extension}`;
 }
 
 

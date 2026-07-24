@@ -3,7 +3,7 @@
 **Project:** Project Atelier / بيتي بذوقي  
 **Status:** Global Definition of Done and Version 1 measurable targets Accepted  
 **Applies to:** Every feature, fix, content workflow, and release  
-**Source material:** `PROJECT_KNOWLEDGE.md`, `PROJECT_AUDIT.md`, `MASTER_PRD.md`, `DECISION_FORM.md`, and the planning-update instruction
+**Source material:** `PROJECT_KNOWLEDGE.md` and the Product Owner decision record
 
 ---
 

@@ -102,9 +102,14 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
         id: '20260723000300',
         transactionSafe: true,
       },
+      {
+        file: '20260724000100_restore_quotation_decline_notification.sql',
+        id: '20260724000100',
+        transactionSafe: true,
+      },
     ]);
 
-    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(11);
+    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(12);
     const history = await client.query<{ name: string; version: string }>(
       `select version, name from supabase_migrations.schema_migrations order by version`,
     );
@@ -120,6 +125,51 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
       { name: 'quotation_decline_and_message_reads', version: '20260723000100' },
       { name: 'quotation_decline_policy', version: '20260723000200' },
       { name: 'quotation_decline_notification', version: '20260723000300' },
+      {
+        name: 'restore_quotation_decline_notification',
+        version: '20260724000100',
+      },
+    ]);
+  });
+
+  it('repairs the deployed schema drift that removed the decline notification function', async () => {
+    await client.query(
+      'drop function notifications.notify_managers_of_quotation_decline(uuid, uuid, text)',
+    );
+    await expect(
+      client.query(
+        `select notifications.notify_managers_of_quotation_decline(
+           '00000000-0000-0000-0000-000000000001'::uuid,
+           '00000000-0000-0000-0000-000000000002'::uuid,
+           'السعر مرتفع'
+         )`,
+      ),
+    ).rejects.toMatchObject({ code: '42883' });
+
+    const migrations = await readVerifiedMigrationChain();
+    const repair = migrations.find(({ id }) => id === '20260724000100');
+    expect(repair).toBeDefined();
+    await client.query(repair!.sql);
+
+    const restored = await client.query<{
+      runtime_execute: boolean;
+      security_definer: boolean;
+      signature: string;
+    }>(
+      `select p.oid::regprocedure::text as signature,
+              p.prosecdef as security_definer,
+              has_function_privilege('atelier_runtime', p.oid, 'EXECUTE') as runtime_execute
+       from pg_proc p
+       where p.oid = to_regprocedure(
+         'notifications.notify_managers_of_quotation_decline(uuid,uuid,text)'
+       )`,
+    );
+    expect(restored.rows).toEqual([
+      {
+        runtime_execute: true,
+        security_definer: true,
+        signature: 'notifications.notify_managers_of_quotation_decline(uuid,uuid,text)',
+      },
     ]);
   });
 

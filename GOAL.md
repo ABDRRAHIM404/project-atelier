@@ -1,9 +1,9 @@
 # Current Project Goal
 
 **Project:** Project Atelier / بيتي بذوقي
-**Milestone:** Lean Version 1 release candidate and provider handoff
-**Status:** Local implementation complete; provider-connected release pending
-**Authorization:** `LEAN_V1_IMPLEMENTATION_PLAN.md`
+**Milestone:** Lean Version 1 deployed stabilization
+**Status:** Deployed to Vercel; issue correction and launch hardening in progress
+**Authorization:** Product Owner decisions recorded in `PROJECT_KNOWLEDGE.md`
 
 ## Objective
 
@@ -19,13 +19,14 @@ Deliver the smallest complete Arabic-first custom-furniture workflow without wea
 - Customer/Manager dashboards, in-app notifications, and Manager catalog draft creation/editing.
 - Local demo runner, reviewed migrations, forced RLS, and full non-browser automated verification.
 
-## Remaining release work
+## Remaining launch work
 
-- Complete the account-connected tasks in `OWNER_PROVIDER_HANDOFF.md`.
-- Connect private upload/finalize/scan/download capabilities and remove demo object-key entry from production UX.
-- Configure real Clerk sign-in/session behavior and the designated Manager account.
-- Configure external email delivery and production deployment.
-- Run the critical Playwright journey in an environment with Playwright Chromium installed.
+- Complete the remaining provider-connected launch work.
+- Add the approved malware-scanning and clean-file lifecycle before launch, or keep affected uploads disabled until an approved alternative exists.
+- Replace the temporary Manager assurance treatment with the approved launch authentication posture.
+- Define the financial, material, refund, and recovery consequences of cancellation after Payment Verification or Production starts.
+- Verify external email delivery and the deployed Vercel environment configuration.
+- Fix current stabilization defects and rerun the full release evidence suite against the deployed environment.
 
 ## Exit criteria
 
