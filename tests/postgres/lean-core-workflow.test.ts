@@ -188,6 +188,20 @@ describe('lean V1 commercial workflow', () => {
         proofObjectKey: `private/payment-proofs/${accepted.orderId}/bank-transfer.pdf`,
       }),
     );
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+        payments.getManagerProof(transaction, payment.submissionId),
+      ),
+    ).rejects.toThrow('MANAGER_MFA_REQUIRED');
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.managerMfa, (transaction) =>
+        payments.getManagerProof(transaction, payment.submissionId),
+      ),
+    ).resolves.toEqual({
+      displayFilename: 'bank-transfer.pdf',
+      mediaType: 'application/pdf',
+      objectKey: `private/payment-proofs/${accepted.orderId}/bank-transfer.pdf`,
+    });
     await withActorTransaction(pool, p1ActorContexts.managerMfa, (transaction) =>
       payments.decide(transaction, { outcome: 'VERIFIED', submissionId: payment.submissionId }),
     );
@@ -230,6 +244,13 @@ describe('lean V1 commercial workflow', () => {
       }),
       fulfilmentState: 'COMPLETED',
       lifecycleState: 'COMPLETED',
+      paymentSubmissions: [
+        expect.objectContaining({
+          declaredReference: 'TRX-TEST-001',
+          displayFilename: 'bank-transfer.pdf',
+          mediaType: 'application/pdf',
+        }),
+      ],
       paymentState: 'VERIFIED',
       productionState: 'READY',
       totalMinor: 475000,

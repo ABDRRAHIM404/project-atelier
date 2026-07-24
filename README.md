@@ -65,7 +65,7 @@ npm run test:e2e:workflow
 - Production cannot begin before manual verified payment.
 - Accepted quotation and order-item history is immutable.
 - Customer records are protected by actor-scoped transactions and forced RLS.
-- Active uploads use Supabase Storage; malware scanning and GuardDuty are not implemented.
+- Active uploads use Supabase Storage for Product images, Custom Design files, Payment proofs, and delivery handoff proofs; malware scanning and GuardDuty are not implemented.
 - Customer and payment uploads are not launch-ready until the approved scan, authorization, and clean-file lifecycle is verified.
 - Demo seed/auth are blocked in staging and production.
 

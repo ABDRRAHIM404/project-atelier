@@ -36,8 +36,10 @@ export type OrderDetail = OrderSummary &
       sequence: number;
     }>[];
     paymentSubmissions: readonly Readonly<{
+      declaredReference: string;
       displayFilename: string;
       id: string;
+      mediaType: 'application/pdf' | 'image/jpeg' | 'image/png';
       submittedAt: string;
     }>[];
     paymentVerifications: readonly Readonly<{
@@ -149,9 +151,15 @@ export class OrderQueryService {
         [orderId],
       ),
       transaction.query<
-        QueryResultRow & { id: string; proof_display_filename: string; submitted_at: Date }
+        QueryResultRow & {
+          declared_reference: string;
+          id: string;
+          proof_display_filename: string;
+          proof_media_type: 'application/pdf' | 'image/jpeg' | 'image/png';
+          submitted_at: Date;
+        }
       >(
-        `select id, proof_display_filename, submitted_at
+        `select id, declared_reference, proof_display_filename, proof_media_type, submitted_at
          from payments.payment_submissions where order_id = $1 order by submitted_at`,
         [orderId],
       ),
@@ -205,8 +213,10 @@ export class OrderQueryService {
       paymentSubmissions: Object.freeze(
         submissions.rows.map((row) =>
           Object.freeze({
+            declaredReference: row.declared_reference,
             displayFilename: row.proof_display_filename,
             id: row.id,
+            mediaType: row.proof_media_type,
             submittedAt: row.submitted_at.toISOString(),
           }),
         ),

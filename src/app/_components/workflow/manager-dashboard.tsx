@@ -69,8 +69,10 @@ type OrderDetail = Order &
       sequence: number;
     }>[];
     paymentSubmissions: readonly Readonly<{
+      declaredReference: string;
       displayFilename: string;
       id: string;
+      mediaType: 'application/pdf' | 'image/jpeg' | 'image/png';
       submittedAt: string;
     }>[];
     paymentVerifications: readonly Readonly<{
@@ -212,12 +214,14 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   );
   const [orderView, setOrderView] = useState<'ACTIVE' | 'CANCELLED' | 'HISTORY'>('ACTIVE');
   const [conversationSearch, setConversationSearch] = useState('');
+  const [handoffProof, setHandoffProof] = useState<File>();
   const [cancelTarget, setCancelTarget] = useState<{
     id: string;
     kind: 'ORDER' | 'REQUEST';
     title: string;
   }>();
   const requestDetailRef = useRef<HTMLElement>(null);
+  const handoffProofInputRef = useRef<HTMLInputElement>(null);
   const initialTabChosen = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -307,6 +311,31 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
       window.clearInterval(timer);
     };
   }, []);
+
+  function clearHandoffProof() {
+    setHandoffProof(undefined);
+    if (handoffProofInputRef.current) handoffProofInputRef.current.value = '';
+  }
+
+  function changeActiveTab(tab: ManagerTab) {
+    setActiveTab(tab);
+    if (tab !== 'requests') setRequestDetail(undefined);
+    if (tab !== 'orders') {
+      setOrderDetail(undefined);
+      clearHandoffProof();
+    }
+  }
+
+  function changeRequestView(view: 'ACTION' | 'WAITING' | 'CANCELLED' | 'HISTORY') {
+    setRequestView(view);
+    setRequestDetail(undefined);
+  }
+
+  function changeOrderView(view: 'ACTIVE' | 'CANCELLED' | 'HISTORY') {
+    setOrderView(view);
+    setOrderDetail(undefined);
+    clearHandoffProof();
+  }
 
   useEffect(() => {
     if (activeTab !== 'messages') return;
@@ -507,7 +536,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }
 
   async function openRequest(requestId: string) {
-    setActiveTab('requests');
+    changeActiveTab('requests');
     setQuotationFulfilmentMethod('DELIVERY');
     setQuotationDeliveryPrice('0');
     setBusy(true);
@@ -565,7 +594,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }
 
   async function openOrder(orderId: string) {
-    setActiveTab('orders');
+    changeActiveTab('orders');
+    setOrderDetail(undefined);
+    clearHandoffProof();
     setBusy(true);
     setError('');
     try {
@@ -615,22 +646,26 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
 
   async function completeOrder(event: FormEvent<HTMLFormElement>, orderId: string) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    if (!handoffProof) {
+      setError('اختر إثبات التسليم أولاً.');
+      return;
+    }
+    const form = new FormData();
+    form.set('proof', handoffProof);
     await perform(async () => {
-      await apiRequest(`/api/v1/manager/orders/${orderId}/complete`, {
-        body: JSON.stringify({
-          proofDisplayFilename: formText(form, 'proofDisplayFilename'),
-          proofMediaType: formText(form, 'proofMediaType'),
-          proofObjectKey: formText(form, 'proofObjectKey'),
-        }),
+      const response = await fetch(`/api/v1/manager/orders/${orderId}/complete`, {
+        body: form,
         method: 'POST',
       });
+      const payload = (await response.json().catch(() => ({}))) as { detail?: string };
+      if (!response.ok) throw new Error(payload.detail ?? 'تعذر تسجيل التسليم.');
+      clearHandoffProof();
       setOrderDetail(await apiRequest<OrderDetail>(`/api/v1/orders/${orderId}`));
     }, 'تم تسجيل التسليم وإكمال الطلب.');
   }
 
   async function openConversation(customerId: string) {
-    setActiveTab('messages');
+    changeActiveTab('messages');
     setMessageCustomerId(customerId);
     setBusy(true);
     setError('');
@@ -716,6 +751,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         method: 'POST',
       });
       setOrderDetail(undefined);
+      clearHandoffProof();
       setCancelTarget(undefined);
     }, 'تم إلغاء الطلب وتسجيل السبب.');
   }
@@ -723,7 +759,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   async function archiveManagerOrder(orderId: string) {
     await perform(async () => {
       await apiRequest(`/api/v1/orders/${orderId}/archive`, { method: 'POST' });
-      if (orderDetail?.id === orderId) setOrderDetail(undefined);
+      if (orderDetail?.id === orderId) {
+        setOrderDetail(undefined);
+        clearHandoffProof();
+      }
     }, 'تم نقل الطلب إلى السجل.');
   }
 
@@ -743,7 +782,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   }
 
   async function openNotifications() {
-    setActiveTab('notifications');
+    changeActiveTab('notifications');
     const unread = notifications.filter((notification) => !notification.read);
     if (unread.length === 0) return;
     setNotifications((current) => current.map((notification) => ({ ...notification, read: true })));
@@ -826,6 +865,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   );
 
   const latestSubmission = orderDetail?.paymentSubmissions.at(-1);
+  const latestSubmissionProofUrl = latestSubmission
+    ? `/api/v1/manager/payment-submissions/${latestSubmission.id}/proof`
+    : '';
   const orderDetailIsActive =
     orderDetail && !['CANCELLED', 'COMPLETED'].includes(orderDetail.lifecycleState);
   const nextState =
@@ -886,7 +928,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           aria-selected={activeTab === 'catalog'}
           className={`manager-tab${activeTab === 'catalog' ? ' manager-tab--active' : ''}`}
           id="manager-tab-catalog"
-          onClick={() => setActiveTab('catalog')}
+          onClick={() => changeActiveTab('catalog')}
           role="tab"
           type="button"
         >
@@ -897,7 +939,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           aria-selected={activeTab === 'requests'}
           className={`manager-tab${activeTab === 'requests' ? ' manager-tab--active' : ''}`}
           id="manager-tab-requests"
-          onClick={() => setActiveTab('requests')}
+          onClick={() => changeActiveTab('requests')}
           role="tab"
           type="button"
         >
@@ -911,7 +953,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           aria-selected={activeTab === 'orders'}
           className={`manager-tab${activeTab === 'orders' ? ' manager-tab--active' : ''}`}
           id="manager-tab-orders"
-          onClick={() => setActiveTab('orders')}
+          onClick={() => changeActiveTab('orders')}
           role="tab"
           type="button"
         >
@@ -925,7 +967,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           aria-selected={activeTab === 'messages'}
           className={`manager-tab${activeTab === 'messages' ? ' manager-tab--active' : ''}`}
           id="manager-tab-messages"
-          onClick={() => setActiveTab('messages')}
+          onClick={() => changeActiveTab('messages')}
           role="tab"
           type="button"
         >
@@ -1316,7 +1358,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 className={
                   requestView === 'ACTION' ? 'saved-view saved-view--active' : 'saved-view'
                 }
-                onClick={() => setRequestView('ACTION')}
+                onClick={() => changeRequestView('ACTION')}
                 type="button"
               >
                 يحتاج إجراء
@@ -1325,7 +1367,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 className={
                   requestView === 'WAITING' ? 'saved-view saved-view--active' : 'saved-view'
                 }
-                onClick={() => setRequestView('WAITING')}
+                onClick={() => changeRequestView('WAITING')}
                 type="button"
               >
                 بانتظار العميل
@@ -1334,7 +1376,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 className={
                   requestView === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'
                 }
-                onClick={() => setRequestView('CANCELLED')}
+                onClick={() => changeRequestView('CANCELLED')}
                 type="button"
               >
                 الملغاة
@@ -1343,7 +1385,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 className={
                   requestView === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'
                 }
-                onClick={() => setRequestView('HISTORY')}
+                onClick={() => changeRequestView('HISTORY')}
                 type="button"
               >
                 السجل
@@ -1405,21 +1447,21 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           <div className="saved-views manager-order-views" aria-label="تصفية الطلبات">
             <button
               className={orderView === 'ACTIVE' ? 'saved-view saved-view--active' : 'saved-view'}
-              onClick={() => setOrderView('ACTIVE')}
+              onClick={() => changeOrderView('ACTIVE')}
               type="button"
             >
               الجارية
             </button>
             <button
               className={orderView === 'CANCELLED' ? 'saved-view saved-view--active' : 'saved-view'}
-              onClick={() => setOrderView('CANCELLED')}
+              onClick={() => changeOrderView('CANCELLED')}
               type="button"
             >
               الملغاة
             </button>
             <button
               className={orderView === 'HISTORY' ? 'saved-view saved-view--active' : 'saved-view'}
-              onClick={() => setOrderView('HISTORY')}
+              onClick={() => changeOrderView('HISTORY')}
               type="button"
             >
               السجل
@@ -1695,7 +1737,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               </div>
               <button
                 className="plain-button"
-                onClick={() => setOrderDetail(undefined)}
+                onClick={() => {
+                  setOrderDetail(undefined);
+                  clearHandoffProof();
+                }}
                 type="button"
               >
                 إغلاق
@@ -1789,9 +1834,35 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
             {orderDetailIsActive && orderDetail.paymentState === 'SUBMITTED' && latestSubmission ? (
               <div className="decision-box">
                 <h3>مراجعة إثبات التحويل</h3>
-                <p>
-                  {latestSubmission.displayFilename} · {formatDate(latestSubmission.submittedAt)}
-                </p>
+                <dl className="detail-list payment-proof-details">
+                  <div>
+                    <dt>مرجع التحويل</dt>
+                    <dd dir="ltr">{latestSubmission.declaredReference}</dd>
+                  </div>
+                  <div>
+                    <dt>تاريخ الإرسال</dt>
+                    <dd>{formatDate(latestSubmission.submittedAt)}</dd>
+                  </div>
+                </dl>
+                <a
+                  className="payment-proof-preview"
+                  href={latestSubmissionProofUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  {latestSubmission.mediaType.startsWith('image/') ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- authenticated proof route redirects to a short-lived private URL.
+                    <img alt="إثبات التحويل المرفوع" src={latestSubmissionProofUrl} />
+                  ) : (
+                    <span className="payment-proof-preview__pdf" aria-hidden="true">
+                      PDF
+                    </span>
+                  )}
+                  <span>
+                    <strong>{latestSubmission.displayFilename}</strong>
+                    <small>فتح إثبات التحويل</small>
+                  </span>
+                </a>
                 <div className="button-row">
                   <button
                     className="button button--small"
@@ -1849,30 +1920,57 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 onSubmit={(event) => completeOrder(event, orderDetail.id)}
               >
                 <h3>تسجيل التسليم</h3>
-                <p className="field-help">ارفع إثبات التسليم إلى التخزين الخاص ثم سجّل مفتاحه.</p>
-                <label>
-                  اسم الملف
-                  <input name="proofDisplayFilename" placeholder="handoff.jpg" required />
-                </label>
-                <label>
-                  نوع الملف
-                  <select name="proofMediaType">
-                    <option value="image/jpeg">JPG</option>
-                    <option value="image/png">PNG</option>
-                    <option value="application/pdf">PDF</option>
-                  </select>
-                </label>
-                <label className="workflow-form__full">
-                  مفتاح الملف الخاص
+                <p className="field-help">ارفع صورة أو ملف PDF يثبت تسليم الطلب.</p>
+                <div className="workflow-form__full">
                   <input
-                    name="proofObjectKey"
-                    placeholder="private/handoff/..."
+                    accept="image/jpeg,image/png,application/pdf"
+                    hidden
+                    name="proof"
+                    onChange={(event) => setHandoffProof(event.currentTarget.files?.[0])}
+                    ref={handoffProofInputRef}
                     required
-                    minLength={3}
+                    type="file"
                   />
-                </label>
-                <button className="button" disabled={busy} type="submit">
-                  تأكيد التسليم وإكمال الطلب
+                  <section className="receipt-uploader">
+                    <span className="receipt-uploader__icon" aria-hidden="true">
+                      ↑
+                    </span>
+                    <div>
+                      <strong>رفع إثبات التسليم</strong>
+                      <p>اختر صورة أو ملف PDF من جهازك.</p>
+                      <small>JPG، PNG، PDF · الحد الأقصى 10 ميغابايت</small>
+                    </div>
+                    <button
+                      className="button button--secondary button--small"
+                      onClick={() => handoffProofInputRef.current?.click()}
+                      type="button"
+                    >
+                      {handoffProof ? 'استبدال الملف' : 'اختيار الملف'}
+                    </button>
+                  </section>
+                  {handoffProof ? (
+                    <article className="receipt-file-card">
+                      <span className="receipt-file-card__type">
+                        {handoffProof.type === 'application/pdf' ? 'PDF' : 'صورة'}
+                      </span>
+                      <div>
+                        <strong>{handoffProof.name}</strong>
+                        <small>{(handoffProof.size / 1024 / 1024).toFixed(1)} ميغابايت</small>
+                      </div>
+                      <button
+                        className="plain-button plain-button--danger"
+                        onClick={() => {
+                          clearHandoffProof();
+                        }}
+                        type="button"
+                      >
+                        حذف
+                      </button>
+                    </article>
+                  ) : null}
+                </div>
+                <button className="button" disabled={busy || !handoffProof} type="submit">
+                  {busy ? 'جاري رفع الإثبات...' : 'تأكيد التسليم وإكمال الطلب'}
                 </button>
               </form>
             ) : null}

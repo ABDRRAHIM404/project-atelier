@@ -53,6 +53,38 @@ async function managerActor(
 }
 
 export class PaymentService {
+  async getManagerProof(
+    transaction: ActorScopedTransaction,
+    submissionId: string,
+  ): Promise<
+    Readonly<{
+      displayFilename: string;
+      mediaType: 'application/pdf' | 'image/jpeg' | 'image/png';
+      objectKey: string;
+    }>
+  > {
+    await managerActor(transaction);
+    const parsedSubmissionId = z.uuid().parse(submissionId);
+    const result = await transaction.query<
+      QueryResultRow & {
+        proof_display_filename: string;
+        proof_media_type: 'application/pdf' | 'image/jpeg' | 'image/png';
+        proof_object_key: string;
+      }
+    >(
+      `select proof_object_key, proof_display_filename, proof_media_type
+       from payments.payment_submissions where id = $1`,
+      [parsedSubmissionId],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('PAYMENT_SUBMISSION_NOT_FOUND');
+    return Object.freeze({
+      displayFilename: row.proof_display_filename,
+      mediaType: row.proof_media_type,
+      objectKey: row.proof_object_key,
+    });
+  }
+
   async submitProof(
     transaction: ActorScopedTransaction,
     input: Readonly<{

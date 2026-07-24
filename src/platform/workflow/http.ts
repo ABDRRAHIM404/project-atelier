@@ -24,12 +24,15 @@ const statusByCode: Readonly<Record<string, number>> = Object.freeze({
   PAYMENT_SUBMISSION_NOT_CURRENT: 409,
   PAYMENT_DECISION_CONFLICT: 409,
   PAYMENT_REJECTION_REASON_REQUIRED: 422,
+  PAYMENT_PROOF_UNAVAILABLE: 404,
   PRIVATE_UPLOADS_NOT_READY: 503,
   PRODUCTION_TRANSITION_FORBIDDEN: 409,
   FULFILMENT_DETAILS_NOT_EDITABLE: 409,
   FULFILMENT_DETAILS_REQUIRED: 409,
   FULFILMENT_METHOD_CHANGE_REQUIRES_NEW_QUOTATION: 409,
   FULFILMENT_NOT_COMPLETABLE: 409,
+  HANDOFF_PROOF_INVALID: 422,
+  HANDOFF_PROOF_REQUIRED: 422,
   CUSTOM_DESIGN_FILES_REQUIRED: 422,
   CUSTOM_DESIGN_FILE_INVALID: 422,
   REQUEST_NOT_CANCELLABLE: 409,
@@ -42,6 +45,10 @@ const statusByCode: Readonly<Record<string, number>> = Object.freeze({
 
 
 const detailByCode: Readonly<Record<string, string>> = Object.freeze({
+  HANDOFF_PROOF_INVALID:
+    'يجب أن يكون إثبات التسليم صورة JPG أو PNG أو ملف PDF بحجم لا يتجاوز 10 ميغابايت.',
+  HANDOFF_PROOF_REQUIRED: 'اختر إثبات التسليم أولاً.',
+  PAYMENT_PROOF_UNAVAILABLE: 'تعذر فتح إثبات التحويل.',
   ORDER_NOT_ARCHIVABLE: 'يمكن نقل الطلبات الملغاة أو المكتملة فقط إلى السجل.',
   ORDER_NOT_CANCELLABLE: 'لا يمكن إلغاء هذا الطلب في حالته الحالية.',
   REQUEST_HAS_ORDER: 'تحول هذا الطلب إلى طلب مؤكد. استخدم إلغاء الطلب المؤكد بدلًا منه.',

@@ -80,7 +80,7 @@ The Product Owner confirmed the following behavior and implementation status aft
 - Custom Design is a permanent second request-entry path. It creates a `CUSTOM_DESIGN` request and then uses the same Quotation, Order, Payment, Production, and Fulfilment workflow as catalog-originated requests.
 - Archiving is organizational only. It sets `archived_at` and never cancels or deletes a record. Orders are archivable when `CANCELLED` or `COMPLETED`; Requests are archivable when `CANCELLED`, `REJECTED`, `COMPLETED`, or `QUOTED`.
 - The Customer profile stores full name, phone, city, and optional address. Each Delivery Order stores phone, city, district, address, optional map URL, and delivery notes. Pickup stores phone and optional pickup notes.
-- The active file implementation uses Supabase Storage for Product images, Custom Design files, and Payment proofs. The S3 adapter is not used by these flows; malware scanning and GuardDuty are not implemented and remain launch-hardening work.
+- The active file implementation uses Supabase Storage for Product images, Custom Design files, Payment proofs, and delivery handoff proofs. The S3 adapter is not used by these flows; malware scanning and GuardDuty are not implemented and remain launch-hardening work.
 - Clerk is the active identity provider. Sensitive Manager operations require the internal `manager_mfa` assurance label. The current resolver assigns that label to Manager sessions without a separate MFA upgrade trigger; production security hardening remains launch work.
 - The application is deployed on Vercel at `https://project-atelier-v1.vercel.app`, with stabilization and issue correction in progress.
 

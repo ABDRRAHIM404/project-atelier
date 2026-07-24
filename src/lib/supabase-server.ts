@@ -42,6 +42,14 @@ export function paymentProofStoragePath(orderId: string, file: File): string {
   return `private/payment-proofs/${orderId}/${uuid}.${extension}`;
 }
 
+export function handoffProofStoragePath(orderId: string, file: File): string {
+  const extension = file.name.split('.').pop()?.toLowerCase() || 'pdf';
+  const uuid = createHash('sha1')
+    .update(`${orderId}:${file.name}:${Date.now()}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `private/handoff/${orderId}/${uuid}.${extension}`;
+}
 
 export function customDesignStoragePath(principalId: string, file: File): string {
   const extension = file.name.split('.').pop()?.toLowerCase() || 'bin';

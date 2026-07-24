@@ -57,9 +57,11 @@ test('completes the Arabic customer-to-manager order journey', async ({ page }) 
     page.getByText('تم حفظ تفاصيل الاستلام. يمكنك الآن إرسال إثبات التحويل.'),
   ).toBeVisible();
 
-  await page.getByLabel('اسم الملف').fill('bank-transfer.pdf');
-  await page.getByLabel('نوع الملف').selectOption('application/pdf');
-  await page.getByLabel('مفتاح الملف الخاص').fill('private/payment-proofs/test/bank-transfer.pdf');
+  await page.locator('input[name="receipt"]').setInputFiles({
+    buffer: Buffer.from('test payment proof'),
+    mimeType: 'application/pdf',
+    name: 'bank-transfer.pdf',
+  });
   await page.getByLabel('مرجع التحويل').fill('TRX-TEST-001');
   await page.getByRole('button', { name: 'إرسال للمراجعة' }).click();
   await expect(page.getByText('تم إرسال إثبات التحويل للمراجعة اليدوية.')).toBeVisible();
@@ -75,9 +77,11 @@ test('completes the Arabic customer-to-manager order journey', async ({ page }) 
     await expect(page.getByText(`تم نقل الإنتاج إلى ${state}.`)).toBeVisible();
   }
 
-  await page.getByLabel('اسم الملف').fill('handoff.jpg');
-  await page.getByLabel('نوع الملف').selectOption('image/jpeg');
-  await page.getByLabel('مفتاح الملف الخاص').fill('private/handoff/test/handoff.jpg');
+  await page.locator('input[name="proof"]').setInputFiles({
+    buffer: Buffer.from('test handoff proof'),
+    mimeType: 'image/jpeg',
+    name: 'handoff.jpg',
+  });
   await page.getByRole('button', { name: 'تأكيد التسليم وإكمال الطلب' }).click();
   await expect(page.getByText('تم تسجيل التسليم وإكمال الطلب.')).toBeVisible();
 

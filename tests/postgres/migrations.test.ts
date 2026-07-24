@@ -107,9 +107,14 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
         id: '20260724000100',
         transactionSafe: true,
       },
+      {
+        file: '20260724000200_handoff_proofs_bucket.sql',
+        id: '20260724000200',
+        transactionSafe: true,
+      },
     ]);
 
-    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(12);
+    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(13);
     const history = await client.query<{ name: string; version: string }>(
       `select version, name from supabase_migrations.schema_migrations order by version`,
     );
@@ -128,6 +133,26 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
       {
         name: 'restore_quotation_decline_notification',
         version: '20260724000100',
+      },
+      {
+        name: 'handoff_proofs_bucket',
+        version: '20260724000200',
+      },
+    ]);
+
+    const handoffBucket = await client.query<{
+      allowed_mime_types: string[];
+      file_size_limit: string;
+      public: boolean;
+    }>(
+      `select public, file_size_limit::text, allowed_mime_types
+       from storage.buckets where id = 'handoff-proofs'`,
+    );
+    expect(handoffBucket.rows).toEqual([
+      {
+        allowed_mime_types: ['image/jpeg', 'image/png', 'application/pdf'],
+        file_size_limit: '10485760',
+        public: false,
       },
     ]);
   });

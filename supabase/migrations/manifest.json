@@ -188,6 +188,20 @@
       "riskClass": "C",
       "transactionSafe": true,
       "verification": "npm run migrations:check && npm run test:postgres && npm run typecheck && npm run lint && npm run build"
+    },
+    {
+      "backwardCompatibility": "Adds a private Supabase Storage bucket for Manager-uploaded delivery handoff proofs",
+      "checksumSha256": "ab2e111e193fe4cd61b03972b7a944b1e3d8b2d5614d23ac7a973777289990a4",
+      "dataEffect": "Creates or updates one private storage bucket without changing business rows",
+      "dependencies": ["20260724000100"],
+      "expectedLock": "Storage bucket metadata row only",
+      "file": "20260724000200_handoff_proofs_bucket.sql",
+      "id": "20260724000200",
+      "owners": ["fulfilment", "files-and-media"],
+      "recovery": "Delete the handoff-proofs bucket only after confirming it contains no required delivery evidence",
+      "riskClass": "C",
+      "transactionSafe": true,
+      "verification": "npm run migrations:check && npm run test:postgres && npm run typecheck && npm run lint && npm run build"
     }
   ]
 }
