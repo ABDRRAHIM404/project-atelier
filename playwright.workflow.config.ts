@@ -11,14 +11,13 @@ export default defineConfig({
       name: 'workflow-chromium',
       use: {
         browserName: 'chromium',
-        ...(executablePath
-          ? {
-              launchOptions: {
-                args: ['--disable-crash-reporter', '--disable-crashpad'],
-                executablePath,
-              },
-            }
-          : {}),
+        launchOptions: {
+          args: [
+            '--no-proxy-server',
+            ...(executablePath ? ['--disable-crash-reporter', '--disable-crashpad'] : []),
+          ],
+          ...(executablePath ? { executablePath } : {}),
+        },
         viewport: { height: 900, width: 1440 },
       },
     },

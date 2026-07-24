@@ -80,15 +80,14 @@ type OrderDetail = Order &
       itemTotalMinor: number;
       sequence: number;
     }>[];
-    paymentSubmissions: readonly Readonly<{
-      displayFilename: string;
-      id: string;
-      submittedAt: string;
-    }>[];
-    paymentVerifications: readonly Readonly<{
-      decidedAt: string;
-      outcome: 'REJECTED' | 'VERIFIED';
-      reason: string;
+    paymentTransactions: readonly Readonly<{
+      amountMinor: number;
+      currencyCode: string;
+      occurredAt: string;
+      paymentMethod: string;
+      providerCode: string;
+      status: string;
+      transactionId: string;
     }>[];
     productionUpdates: readonly Readonly<{
       fromState: string;
@@ -166,9 +165,6 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
     kind: 'ORDER' | 'REQUEST';
     title: string;
   }>();
-  const [receiptFile, setReceiptFile] = useState<File>();
-  const [receiptDragging, setReceiptDragging] = useState(false);
-  const receiptInputRef = useRef<HTMLInputElement>(null);
   const initialTabChosen = useRef(false);
   const initialProductHandled = useRef(false);
 
@@ -360,7 +356,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         { method: 'POST' },
       );
       acceptedOrderId = result.orderId;
-    }, 'تم قبول السعر. أكمل بياناتك للانتقال إلى التحويل.');
+    }, 'تم قبول السعر. أكمل بيانات الاستلام للانتقال إلى الدفع.');
     if (acceptedOrderId) await openOrder(acceptedOrderId);
   }
 
@@ -409,40 +405,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         method: 'POST',
       });
       await openOrder(orderId);
-    }, 'تم حفظ تفاصيل الاستلام. يمكنك الآن إرسال إثبات التحويل.');
-  }
-
-  function chooseReceipt(file: File | undefined) {
-    if (!file) return;
-    const supported = ['image/jpeg', 'image/png', 'application/pdf'].includes(file.type);
-    if (!supported || file.size > 10 * 1024 * 1024) {
-      setError('اختر صورة JPG أو PNG أو ملف PDF بحجم لا يتجاوز 10 ميغابايت.');
-      return;
-    }
-    setError('');
-    setReceiptFile(file);
-    if (receiptInputRef.current) {
-      const transfer = new DataTransfer();
-      transfer.items.add(file);
-      receiptInputRef.current.files = transfer.files;
-    }
-  }
-
-  async function submitPayment(event: FormEvent<HTMLFormElement>, orderId: string) {
-    event.preventDefault();
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    await perform(async () => {
-      const response = await fetch(`/api/v1/orders/${orderId}/payment-submissions`, {
-        body: form,
-        method: 'POST',
-      });
-      const payload = (await response.json().catch(() => ({}))) as { detail?: string };
-      if (!response.ok) throw new Error(payload.detail ?? 'تعذر رفع إيصال التحويل.');
-      formElement.reset();
-      setReceiptFile(undefined);
-      await openOrder(orderId);
-    }, 'تم إرسال إيصال التحويل للمراجعة.');
+    }, 'تم حفظ تفاصيل الاستلام. سيصبح الدفع متاحاً بعد اكتمال ربط مزود الخدمة.');
   }
 
   async function cancelOrder(event: FormEvent<HTMLFormElement>, orderId: string) {
@@ -489,15 +452,6 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
       setError(caught instanceof Error ? caught.message : 'تعذر إرسال الرسالة.');
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function copyBankValue(value: string, label: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setNotice(`تم نسخ ${label}.`);
-    } catch {
-      setError(`تعذر نسخ ${label}.`);
     }
   }
 
@@ -623,19 +577,8 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
         : true,
     )
     .slice(0, 12);
-  const bankDetails =
-    orderDetail?.terms.bankDetails &&
-    typeof orderDetail.terms.bankDetails === 'object' &&
-    !Array.isArray(orderDetail.terms.bankDetails)
-      ? (orderDetail.terms.bankDetails as Record<string, unknown>)
-      : undefined;
-  const bankName = String(bankDetails?.bankName ?? '—');
-  const accountHolder = String(bankDetails?.accountHolder ?? '—');
-  const rib = String(bankDetails?.rib ?? '—');
-  const iban = bankDetails?.iban ? String(bankDetails.iban) : '';
-  const paymentStepCompleted =
-    orderDetail !== undefined &&
-    !['AWAITING_SUBMISSION', 'REJECTED'].includes(orderDetail.paymentState);
+  const paymentStepCompleted = orderDetail?.paymentState === 'VERIFIED';
+  const latestPaymentTransaction = orderDetail?.paymentTransactions.at(-1);
 
   return (
     <main className="workspace section-shell" id="main-content" tabIndex={-1}>
@@ -1248,7 +1191,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                       <span aria-hidden="true">{paymentStepCompleted ? '✓' : '3'}</span>
                       <div>
                         <small>الخطوة 3 من 3</small>
-                        <strong>التحويل والإثبات</strong>
+                        <strong>الدفع الإلكتروني</strong>
                       </div>
                     </li>
                   </ol>
@@ -1265,7 +1208,7 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                   >
                     <h4>تفاصيل الاستلام</h4>
                     <p className="field-help">
-                      أكد بيانات التواصل والاستلام المعتمدة في عرض السعر قبل إرسال إثبات التحويل.
+                      أكد بيانات التواصل والاستلام المعتمدة في عرض السعر قبل الدفع.
                     </p>
                     <div className="workflow-form__full decision-box">
                       <strong>طريقة الاستلام المعتمدة</strong>
@@ -1305,7 +1248,11 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                         </label>
                         <label className="workflow-form__full">
                           رابط الموقع على الخريطة (اختياري)
-                          <input name="mapUrl" type="url" placeholder="https://maps.google.com/..." />
+                          <input
+                            name="mapUrl"
+                            type="url"
+                            placeholder="https://maps.google.com/..."
+                          />
                         </label>
                         <label className="workflow-form__full">
                           ملاحظات التوصيل (اختياري)
@@ -1328,194 +1275,61 @@ export function CustomerDashboard({ demoEnabled, initialProductId }: CustomerDas
                     {orderDetail.fulfilmentMethod === 'DELIVERY' ? 'التوصيل' : 'الاستلام'}.
                   </div>
                 )}
-                {orderDetail.fulfilmentDetailsConfirmedAt && bankDetails ? (
-                  <section className="bank-details" aria-labelledby="bank-details-title">
-                    <h4 id="bank-details-title">بيانات التحويل البنكي</h4>
-                    <p className="field-help">انسخ البيانات بدقة عند تنفيذ التحويل.</p>
-                    <dl className="detail-list">
-                      <div>
-                        <dt>البنك</dt>
-                        <dd className="copyable-value">
-                          <span>{bankName}</span>
-                          <button
-                            onClick={() => void copyBankValue(bankName, 'اسم البنك')}
-                            type="button"
-                          >
-                            نسخ
-                          </button>
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>اسم صاحب الحساب</dt>
-                        <dd className="copyable-value">
-                          <span>{accountHolder}</span>
-                          <button
-                            onClick={() => void copyBankValue(accountHolder, 'اسم صاحب الحساب')}
-                            type="button"
-                          >
-                            نسخ
-                          </button>
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>رقم الحساب البنكي (RIB)</dt>
-                        <dd className="copyable-value" dir="ltr">
-                          <span>{rib}</span>
-                          <button
-                            onClick={() => void copyBankValue(rib, 'رقم الحساب البنكي')}
-                            type="button"
-                          >
-                            نسخ
-                          </button>
-                        </dd>
-                      </div>
-                      {iban ? (
-                        <div>
-                          <dt>IBAN</dt>
-                          <dd className="copyable-value" dir="ltr">
-                            <span>{iban}</span>
-                            <button onClick={() => void copyBankValue(iban, 'IBAN')} type="button">
-                              نسخ
-                            </button>
-                          </dd>
-                        </div>
-                      ) : null}
-                      <div>
-                        <dt>المبلغ</dt>
-                        <dd className="copyable-value">
-                          <span>{formatMoney(orderDetail.totalMinor, orderDetail.currencyCode)}</span>
-                          <button
-                            onClick={() =>
-                              void copyBankValue(
-                                formatMoney(orderDetail.totalMinor, orderDetail.currencyCode),
-                                'المبلغ',
-                              )
-                            }
-                            type="button"
-                          >
-                            نسخ
-                          </button>
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>مرجع الطلب</dt>
-                        <dd className="copyable-value" dir="ltr">
-                          <span>{orderDetail.displayReference}</span>
-                          <button
-                            onClick={() =>
-                              void copyBankValue(orderDetail.displayReference, 'مرجع الطلب')
-                            }
-                            type="button"
-                          >
-                            نسخ
-                          </button>
-                        </dd>
-                      </div>
-                    </dl>
-                  </section>
-                ) : null}
                 {orderDetail.lifecycleState !== 'CANCELLED' &&
                 orderDetail.fulfilmentDetailsConfirmedAt &&
-                ['AWAITING_SUBMISSION', 'REJECTED'].includes(orderDetail.paymentState) ? (
-                  <form
-                    className="workflow-form"
-                    onSubmit={(event) => submitPayment(event, orderDetail.id)}
-                  >
-                    <h4>إرسال إيصال التحويل</h4>
-                    <p className="field-help">
-                      ارفع صورة أو ملف PDF لإيصال التحويل، ثم أرسله للمراجعة.
+                orderDetail.paymentState !== 'VERIFIED' ? (
+                  <section className="decision-box" aria-labelledby="online-payment-title">
+                    <div className="workspace-panel__heading">
+                      <div>
+                        <h4 id="online-payment-title">الدفع الإلكتروني الآمن</h4>
+                        <p className="field-help">
+                          سيتم تحويلك إلى صفحة مزود الدفع لإدخال بيانات البطاقة والتحقق.
+                        </p>
+                      </div>
+                      <span className="status-chip">قريباً</span>
+                    </div>
+                    <p>
+                      المبلغ المطلوب:{' '}
+                      <strong>
+                        {formatMoney(orderDetail.totalMinor, orderDetail.currencyCode)}
+                      </strong>
                     </p>
-                    <div className="workflow-form__full">
-                      <input
-                        accept="image/jpeg,image/png,application/pdf"
-                        hidden
-                        name="receipt"
-                        onChange={(event) => chooseReceipt(event.currentTarget.files?.[0])}
-                        ref={receiptInputRef}
-                        required
-                        type="file"
-                      />
-                      <section
-                        className={`receipt-uploader${receiptDragging ? ' receipt-uploader--dragging' : ''}`}
-                        onDragEnter={(event) => {
-                          event.preventDefault();
-                          setReceiptDragging(true);
-                        }}
-                        onDragLeave={(event) => {
-                          event.preventDefault();
-                          setReceiptDragging(false);
-                        }}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => {
-                          event.preventDefault();
-                          setReceiptDragging(false);
-                          chooseReceipt(event.dataTransfer.files[0]);
-                        }}
-                      >
-                        <span className="receipt-uploader__icon" aria-hidden="true">
-                          ↑
-                        </span>
-                        <div>
-                          <strong>رفع إيصال التحويل</strong>
-                          <p>اسحب الإيصال هنا أو اضغط لاختياره من جهازك.</p>
-                          <small>JPG، PNG، PDF · الحد الأقصى 10 ميغابايت</small>
-                        </div>
-                        <button
-                          className="button button--secondary button--small"
-                          onClick={() => receiptInputRef.current?.click()}
-                          type="button"
-                        >
-                          {receiptFile ? 'استبدال الملف' : 'اختيار الملف'}
-                        </button>
-                      </section>
-                      {receiptFile ? (
-                        <article className="receipt-file-card">
-                          <span className="receipt-file-card__type">
-                            {receiptFile.type === 'application/pdf' ? 'PDF' : 'صورة'}
-                          </span>
-                          <div>
-                            <strong>{receiptFile.name}</strong>
-                            <small>{(receiptFile.size / 1024 / 1024).toFixed(1)} ميغابايت</small>
-                          </div>
-                          <button
-                            className="plain-button plain-button--danger"
-                            onClick={() => {
-                              setReceiptFile(undefined);
-                              if (receiptInputRef.current) receiptInputRef.current.value = '';
-                            }}
-                            type="button"
-                          >
-                            حذف
-                          </button>
-                      </article>
-                    ) : null}
-                  </div>
-                  <label className="workflow-form__full">
-                    مرجع التحويل
-                    <input name="declaredReference" required minLength={2} />
-                  </label>
-                  <button className="button" disabled={busy || !receiptFile} type="submit">
-                    {busy ? 'جاري رفع الإيصال...' : 'إرسال للمراجعة'}
-                  </button>
-                </form>
-              ) : null}
-              {orderDetail.productionUpdates.length > 0 ? (
-                <ol className="timeline">
-                  {orderDetail.productionUpdates.map((update) => (
-                    <li key={update.sequence}>
-                      <strong>{stateLabel(update.toState)}</strong>
-                      <span>{update.note || formatDate(update.occurredAt)}</span>
-                    </li>
-                  ))}
-                </ol>
-              ) : null}
-              {orderDetail.paymentVerifications.map((decision) => (
-                <div className="workflow-alert" key={decision.decidedAt}>
-                  {decision.outcome === 'VERIFIED'
-                    ? 'تم تأكيد التحويل.'
-                    : `رُفض الإثبات: ${decision.reason}`}
-                </div>
-              ))}
+                    <p className="field-help">mada · Visa · Mastercard · Apple Pay</p>
+                    <button
+                      aria-describedby="payment-unavailable-help"
+                      className="button"
+                      disabled
+                      type="button"
+                    >
+                      ادفع الآن
+                    </button>
+                    <p className="field-help" id="payment-unavailable-help" role="status">
+                      الدفع غير متاح حالياً حتى اكتمال الربط الرسمي مع مزود الخدمة.
+                    </p>
+                  </section>
+                ) : null}
+                {latestPaymentTransaction ? (
+                  <section className="decision-box decision-box--success">
+                    <h4>تم الدفع بنجاح</h4>
+                    <p>
+                      {formatMoney(
+                        latestPaymentTransaction.amountMinor,
+                        latestPaymentTransaction.currencyCode,
+                      )}{' '}
+                      · {formatDate(latestPaymentTransaction.occurredAt)}
+                    </p>
+                  </section>
+                ) : null}
+                {orderDetail.productionUpdates.length > 0 ? (
+                  <ol className="timeline">
+                    {orderDetail.productionUpdates.map((update) => (
+                      <li key={update.sequence}>
+                        <strong>{stateLabel(update.toState)}</strong>
+                        <span>{update.note || formatDate(update.occurredAt)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
               </article>
             </div>
           ) : null}

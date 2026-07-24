@@ -25,19 +25,23 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   const messages = await getMessages();
   const translate = await getTranslations('Accessibility');
 
-  return (
-    <ClerkProvider>
-      <html data-scroll-behavior="smooth" dir={localeDirection(locale)} lang={locale}>
-        <body>
-          <a className="skip-link" href="#main-content">
-            {translate('skipToContent')}
-          </a>
+  const document = (
+    <html data-scroll-behavior="smooth" dir={localeDirection(locale)} lang={locale}>
+      <body>
+        <a className="skip-link" href="#main-content">
+          {translate('skipToContent')}
+        </a>
 
-          <LocalizationProvider locale={locale} messages={messages}>
-            {children}
-          </LocalizationProvider>
-        </body>
-      </html>
-    </ClerkProvider>
+        <LocalizationProvider locale={locale} messages={messages}>
+          {children}
+        </LocalizationProvider>
+      </body>
+    </html>
   );
+  const demoAuthenticationEnabled =
+    process.env.ALLOW_DEMO_AUTH === 'true' &&
+    process.env.APP_ENV !== 'production' &&
+    process.env.APP_ENV !== 'staging';
+
+  return demoAuthenticationEnabled ? document : <ClerkProvider>{document}</ClerkProvider>;
 }

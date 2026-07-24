@@ -25,13 +25,15 @@ The application is deployed to Vercel and is in stabilization and launch-hardeni
 - Do not declare external uploads launch-ready until private access, finalization, malware scanning, and authorization are verified.
 - Do not enable demo authentication or demo seed in staging/production.
 - Do not claim provider, browser, deployment, malware-scan, or email verification without direct evidence.
+- Keep online card payment disabled or marked `قريباً` until the Product Owner supplies the official provider, documentation, sandbox credentials, merchant identifiers, and webhook signing secret.
+- Never collect or store card numbers, CVV values, OTP codes, or full card details. Only a verified signed provider webhook may verify an online payment.
 - Run the affected static, PostgreSQL, migration, security, browser, and production-build checks before declaring release readiness.
 - Deferred Version 1.1 scope remains deferred.
 
 ## Non-Negotiable Product Rules
 
 - No direct checkout; every purchase path uses Manager review and quotation.
-- Production never begins before successful manual Manager Payment Verification.
+- Production never begins before successful Payment Verification from a verified signed online-payment webhook. Historical manual-transfer records remain immutable but the manual workflow is no longer active.
 - Accepted quotation history and historical Order Item Snapshots are immutable.
 - Customers access only their own private records and files.
 - Customer uploads are private unless intentionally published by the Manager.

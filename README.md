@@ -1,6 +1,6 @@
 # Project Atelier / بيتي بذوقي
 
-Arabic-first, RTL custom-furniture platform for one Saudi furniture business. Customers submit made-to-order projects, receive a manager quotation, accept it, submit bank-transfer proof, and track order-level production through delivery or pickup.
+Arabic-first, RTL custom-furniture platform for one Saudi furniture business. Customers submit made-to-order projects, receive a Manager quotation, accept it, confirm fulfilment details, and track payment and order-level production through delivery or pickup.
 
 ## Current delivery status
 
@@ -11,13 +11,15 @@ The repository is a **lean Version 1 deployed stabilization build** available at
 3. Customer–manager messaging.
 4. Manager quotation and customer acceptance.
 5. Order creation with immutable commercial snapshots.
-6. Bank-transfer proof metadata and manual manager verification.
-7. Verified-payment gate before production.
+6. Provider-neutral hosted-checkout records and webhook-only payment verification.
+7. Verified signed-payment gate before production.
 8. Order-level production stages.
 9. Delivery/pickup proof metadata and completion.
 10. Customer and manager dashboards, notifications, and manager catalog drafts.
 
 Clerk, Supabase Storage, and Vercel are connected in the current build. Malware scanning, final Manager authentication hardening, external email evidence, and the complete launch gate remain pending.
+
+Provider-neutral hosted checkout is implemented, but no provider-specific adapter is connected. The active UI therefore shows online payment as `قريباً`, and manual bank-transfer submission and approval are no longer exposed. Enabling payment requires the Manager's approved provider documentation, sandbox credentials, merchant identifiers, API credentials, and webhook signing secret; only a verified signed webhook may mark an Order as paid.
 
 ## Run the local demo
 
@@ -62,11 +64,11 @@ npm run test:e2e:workflow
 ## Important release gates
 
 - No direct checkout exists.
-- Production cannot begin before manual verified payment.
+- Production cannot begin before payment verified by a signed provider webhook. A redirect or success URL never verifies payment.
 - Accepted quotation and order-item history is immutable.
 - Customer records are protected by actor-scoped transactions and forced RLS.
-- Active uploads use Supabase Storage for Product images, Custom Design files, Payment proofs, and delivery handoff proofs; malware scanning and GuardDuty are not implemented.
-- Customer and payment uploads are not launch-ready until the approved scan, authorization, and clean-file lifecycle is verified.
+- Active uploads use Supabase Storage for Product images, Custom Design files, and delivery handoff proofs. Historical Payment proofs remain private; new Payment-proof upload is disabled. Malware scanning and GuardDuty are not implemented.
+- Customer uploads are not launch-ready until the approved scan, authorization, and clean-file lifecycle is verified.
 - Demo seed/auth are blocked in staging and production.
 
 ## Project references

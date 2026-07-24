@@ -35,17 +35,14 @@ export type OrderDetail = OrderSummary &
       itemTotalMinor: number;
       sequence: number;
     }>[];
-    paymentSubmissions: readonly Readonly<{
-      declaredReference: string;
-      displayFilename: string;
-      id: string;
-      mediaType: 'application/pdf' | 'image/jpeg' | 'image/png';
-      submittedAt: string;
-    }>[];
-    paymentVerifications: readonly Readonly<{
-      decidedAt: string;
-      outcome: 'REJECTED' | 'VERIFIED';
-      reason: string;
+    paymentTransactions: readonly Readonly<{
+      amountMinor: number;
+      currencyCode: string;
+      occurredAt: string;
+      paymentMethod: string;
+      providerCode: string;
+      status: string;
+      transactionId: string;
     }>[];
     productionUpdates: readonly Readonly<{
       fromState: string;
@@ -133,7 +130,7 @@ export class OrderQueryService {
     const summary = rows.find((item) => item.id === orderId);
     if (!summary) return undefined;
 
-    const [items, terms, submissions, decisions, updates, fulfilment] = await Promise.all([
+    const [items, terms, transactions, updates, fulfilment] = await Promise.all([
       transaction.query<
         QueryResultRow & {
           id: string;
@@ -152,22 +149,18 @@ export class OrderQueryService {
       ),
       transaction.query<
         QueryResultRow & {
-          declared_reference: string;
-          id: string;
-          proof_display_filename: string;
-          proof_media_type: 'application/pdf' | 'image/jpeg' | 'image/png';
-          submitted_at: Date;
+          amount_minor: string;
+          currency_code: string;
+          occurred_at: Date;
+          payment_method: string;
+          provider_code: string;
+          provider_transaction_id: string;
+          status: string;
         }
       >(
-        `select id, declared_reference, proof_display_filename, proof_media_type, submitted_at
-         from payments.payment_submissions where order_id = $1 order by submitted_at`,
-        [orderId],
-      ),
-      transaction.query<
-        QueryResultRow & { decided_at: Date; outcome: 'REJECTED' | 'VERIFIED'; safe_reason: string }
-      >(
-        `select outcome, safe_reason, decided_at
-         from payments.payment_verifications where order_id = $1 order by decided_at`,
+        `select provider_code, provider_transaction_id, payment_method, amount_minor,
+                currency_code, status, coalesce(provider_occurred_at, created_at) as occurred_at
+         from payments.gateway_transactions where order_id = $1 order by created_at`,
         [orderId],
       ),
       transaction.query<
@@ -210,23 +203,16 @@ export class OrderQueryService {
       fulfilmentDetails: fulfilment.rows[0]?.accepted_snapshot ?? {},
       fulfilmentDetailsConfirmedAt:
         fulfilment.rows[0]?.customer_details_confirmed_at?.toISOString(),
-      paymentSubmissions: Object.freeze(
-        submissions.rows.map((row) =>
+      paymentTransactions: Object.freeze(
+        transactions.rows.map((row) =>
           Object.freeze({
-            declaredReference: row.declared_reference,
-            displayFilename: row.proof_display_filename,
-            id: row.id,
-            mediaType: row.proof_media_type,
-            submittedAt: row.submitted_at.toISOString(),
-          }),
-        ),
-      ),
-      paymentVerifications: Object.freeze(
-        decisions.rows.map((row) =>
-          Object.freeze({
-            decidedAt: row.decided_at.toISOString(),
-            outcome: row.outcome,
-            reason: row.safe_reason,
+            amountMinor: Number(row.amount_minor),
+            currencyCode: row.currency_code,
+            occurredAt: row.occurred_at.toISOString(),
+            paymentMethod: row.payment_method,
+            providerCode: row.provider_code,
+            status: row.status,
+            transactionId: row.provider_transaction_id,
           }),
         ),
       ),

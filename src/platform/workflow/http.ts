@@ -19,7 +19,19 @@ const statusByCode: Readonly<Record<string, number>> = Object.freeze({
   QUOTATION_ALREADY_ACCEPTED: 409,
   QUOTATION_LINES_INCOMPLETE: 422,
   QUOTATION_NOT_ACCEPTABLE: 409,
+  PAYMENT_ALREADY_VERIFIED: 409,
+  PAYMENT_ATTEMPT_NOT_FOUND: 404,
+  PAYMENT_ATTEMPT_NOT_PENDING: 409,
+  PAYMENT_ATTEMPT_NOT_REUSABLE: 409,
+  PAYMENT_NOT_PAYABLE: 409,
   PAYMENT_NOT_SUBMITTABLE: 409,
+  PAYMENT_PROVIDER_EVENT_INVALID: 422,
+  PAYMENT_PROVIDER_TRANSACTION_REQUIRED: 422,
+  PAYMENT_PROVIDER_UNAVAILABLE: 503,
+  PAYMENT_WEBHOOK_DIGEST_CONFLICT: 409,
+  PAYMENT_WEBHOOK_EVENT_CONFLICT: 409,
+  PAYMENT_WEBHOOK_ORDER_MISMATCH: 409,
+  PAYMENT_WEBHOOK_VERIFICATION_REQUIRED: 401,
   PAYMENT_SUBMISSION_NOT_FOUND: 404,
   PAYMENT_SUBMISSION_NOT_CURRENT: 409,
   PAYMENT_DECISION_CONFLICT: 409,
@@ -43,12 +55,14 @@ const statusByCode: Readonly<Record<string, number>> = Object.freeze({
   NOTIFICATION_NOT_FOUND: 404,
 });
 
-
 const detailByCode: Readonly<Record<string, string>> = Object.freeze({
   HANDOFF_PROOF_INVALID:
     'يجب أن يكون إثبات التسليم صورة JPG أو PNG أو ملف PDF بحجم لا يتجاوز 10 ميغابايت.',
   HANDOFF_PROOF_REQUIRED: 'اختر إثبات التسليم أولاً.',
   PAYMENT_PROOF_UNAVAILABLE: 'تعذر فتح إثبات التحويل.',
+  PAYMENT_PROVIDER_UNAVAILABLE:
+    'الدفع الإلكتروني غير متاح حالياً. سيظهر زر الدفع عند اكتمال الربط الآمن مع مزود الخدمة.',
+  PAYMENT_NOT_PAYABLE: 'هذا الطلب غير متاح للدفع في حالته الحالية.',
   ORDER_NOT_ARCHIVABLE: 'يمكن نقل الطلبات الملغاة أو المكتملة فقط إلى السجل.',
   ORDER_NOT_CANCELLABLE: 'لا يمكن إلغاء هذا الطلب في حالته الحالية.',
   REQUEST_HAS_ORDER: 'تحول هذا الطلب إلى طلب مؤكد. استخدم إلغاء الطلب المؤكد بدلًا منه.',

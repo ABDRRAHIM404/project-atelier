@@ -57,7 +57,7 @@ async function waitForServer(url, child) {
 
 if (process.env.SKIP_E2E_BUILD !== 'true') {
   await run(process.execPath, ['node_modules/next/dist/bin/next', 'build'], {
-    env: { APP_ENV: 'test' },
+    env: { ALLOW_DEMO_AUTH: 'true', APP_ENV: 'test' },
   });
 }
 

@@ -68,17 +68,14 @@ type OrderDetail = Order &
       itemTotalMinor: number;
       sequence: number;
     }>[];
-    paymentSubmissions: readonly Readonly<{
-      declaredReference: string;
-      displayFilename: string;
-      id: string;
-      mediaType: 'application/pdf' | 'image/jpeg' | 'image/png';
-      submittedAt: string;
-    }>[];
-    paymentVerifications: readonly Readonly<{
-      decidedAt: string;
-      outcome: 'REJECTED' | 'VERIFIED';
-      reason: string;
+    paymentTransactions: readonly Readonly<{
+      amountMinor: number;
+      currencyCode: string;
+      occurredAt: string;
+      paymentMethod: string;
+      providerCode: string;
+      status: string;
+      transactionId: string;
     }>[];
     productionUpdates: readonly Readonly<{
       fromState: string;
@@ -575,14 +572,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           managerNotes: formText(form, 'managerNotes'),
           productionEstimateText: formText(form, 'productionEstimateText'),
           termsSnapshot: {
-            payment: 'تحويل بنكي كامل قبل بدء التنفيذ',
-            bankDetails: {
-              accountHolder: formText(form, 'accountHolder'),
-              bankName: formText(form, 'bankName'),
-              iban: formText(form, 'iban'),
-              rib: formText(form, 'rib'),
-              transferInstructions: formText(form, 'transferInstructions'),
-            },
+            payment: 'دفع إلكتروني كامل عبر صفحة دفع مستضافة قبل بدء التنفيذ',
           },
         }),
         method: 'POST',
@@ -606,26 +596,6 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     } finally {
       setBusy(false);
     }
-  }
-
-  async function decidePayment(outcome: 'reject' | 'verify', submissionId: string, reason = '') {
-    await perform(
-      async () => {
-        await apiRequest(`/api/v1/manager/payment-submissions/${submissionId}/${outcome}`, {
-          body: JSON.stringify({ safeReason: reason }),
-          method: 'POST',
-        });
-        if (orderDetail)
-          setOrderDetail(await apiRequest<OrderDetail>(`/api/v1/orders/${orderDetail.id}`));
-      },
-      outcome === 'verify' ? 'تم تأكيد التحويل.' : 'تم رفض الإثبات وإبلاغ العميل.',
-    );
-  }
-
-  async function rejectPayment(event: FormEvent<HTMLFormElement>, submissionId: string) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await decidePayment('reject', submissionId, formText(form, 'safeReason'));
   }
 
   async function advanceProduction(orderId: string, toState: string) {
@@ -864,10 +834,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     (conversation) => conversation.customerId === messageCustomerId,
   );
 
-  const latestSubmission = orderDetail?.paymentSubmissions.at(-1);
-  const latestSubmissionProofUrl = latestSubmission
-    ? `/api/v1/manager/payment-submissions/${latestSubmission.id}/proof`
-    : '';
+  const latestPaymentTransaction = orderDetail?.paymentTransactions.at(-1);
   const orderDetailIsActive =
     orderDetail && !['CANCELLED', 'COMPLETED'].includes(orderDetail.lifecycleState);
   const nextState =
@@ -887,7 +854,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
         <div>
           <p className="eyebrow">لوحة المدير</p>
           <h1>إدارة الطلبات من المراجعة حتى التسليم</h1>
-          <p>راجع طلبات التصميم، أرسل عروض السعر، تحقق من التحويلات، وحدّث تقدم الإنتاج.</p>
+          <p>راجع طلبات التصميم، أرسل عروض السعر، وتابع الدفع والإنتاج والتسليم.</p>
         </div>
         <Link className="button button--secondary" href="/catalog">
           فتح المعرض
@@ -1688,30 +1655,6 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                   minLength={2}
                 />
               </label>
-              <fieldset className="workflow-form__full bank-fields">
-                <legend>بيانات التحويل البنكي</legend>
-                <p className="field-help">ستظهر هذه البيانات للعميل بعد قبول عرض السعر.</p>
-                <label>
-                  اسم البنك
-                  <input name="bankName" required />
-                </label>
-                <label>
-                  اسم صاحب الحساب
-                  <input name="accountHolder" required />
-                </label>
-                <label>
-                  رقم الحساب البنكي (RIB)
-                  <input dir="ltr" name="rib" required />
-                </label>
-                <label>
-                  IBAN (اختياري)
-                  <input dir="ltr" name="iban" />
-                </label>
-                <label className="workflow-form__full">
-                  تعليمات التحويل (اختياري)
-                  <textarea name="transferInstructions" rows={2} />
-                </label>
-              </fieldset>
               <label className="workflow-form__full">
                 ملاحظات المدير
                 <textarea name="managerNotes" rows={3} />
@@ -1831,71 +1774,45 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
               )}
             </div>
 
-            {orderDetailIsActive && orderDetail.paymentState === 'SUBMITTED' && latestSubmission ? (
-              <div className="decision-box">
-                <h3>مراجعة إثبات التحويل</h3>
-                <dl className="detail-list payment-proof-details">
+            <div className="decision-box">
+              <h3>الدفع الإلكتروني</h3>
+              {latestPaymentTransaction ? (
+                <dl className="detail-list">
                   <div>
-                    <dt>مرجع التحويل</dt>
-                    <dd dir="ltr">{latestSubmission.declaredReference}</dd>
+                    <dt>المزود</dt>
+                    <dd>{latestPaymentTransaction.providerCode}</dd>
                   </div>
                   <div>
-                    <dt>تاريخ الإرسال</dt>
-                    <dd>{formatDate(latestSubmission.submittedAt)}</dd>
+                    <dt>طريقة الدفع</dt>
+                    <dd>{latestPaymentTransaction.paymentMethod}</dd>
+                  </div>
+                  <div>
+                    <dt>المبلغ</dt>
+                    <dd>
+                      {formatMoney(
+                        latestPaymentTransaction.amountMinor,
+                        latestPaymentTransaction.currencyCode,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>التاريخ</dt>
+                    <dd>{formatDate(latestPaymentTransaction.occurredAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>رقم العملية</dt>
+                    <dd dir="ltr">{latestPaymentTransaction.transactionId}</dd>
                   </div>
                 </dl>
-                <a
-                  className="payment-proof-preview"
-                  href={latestSubmissionProofUrl}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  {latestSubmission.mediaType.startsWith('image/') ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- authenticated proof route redirects to a short-lived private URL.
-                    <img alt="إثبات التحويل المرفوع" src={latestSubmissionProofUrl} />
-                  ) : (
-                    <span className="payment-proof-preview__pdf" aria-hidden="true">
-                      PDF
-                    </span>
-                  )}
-                  <span>
-                    <strong>{latestSubmission.displayFilename}</strong>
-                    <small>فتح إثبات التحويل</small>
-                  </span>
-                </a>
-                <div className="button-row">
-                  <button
-                    className="button button--small"
-                    disabled={busy}
-                    onClick={() => decidePayment('verify', latestSubmission.id)}
-                    type="button"
-                  >
-                    تأكيد التحويل
-                  </button>
-                </div>
-                <form
-                  className="workflow-form workflow-form--compact"
-                  onSubmit={(event) => rejectPayment(event, latestSubmission.id)}
-                >
-                  <label>
-                    سبب الرفض الآمن
-                    <input
-                      name="safeReason"
-                      placeholder="الصورة غير واضحة"
-                      required
-                      minLength={2}
-                    />
-                  </label>
-                  <button
-                    className="button button--secondary button--small"
-                    disabled={busy}
-                    type="submit"
-                  >
-                    رفض وطلب إثبات جديد
-                  </button>
-                </form>
-              </div>
-            ) : null}
+              ) : (
+                <>
+                  <p>لم يتم تسجيل عملية دفع إلكتروني موثقة لهذا الطلب.</p>
+                  <small className="field-help">
+                    الربط مع مزود الدفع غير متاح حالياً، ولا توجد موافقة دفع يدوية.
+                  </small>
+                </>
+              )}
+            </div>
 
             {nextState ? (
               <div className="decision-box">

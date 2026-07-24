@@ -8,7 +8,7 @@ import { StorefrontShell } from '../_components/storefront-shell';
 import { ManagerDashboard } from '../_components/workflow/manager-dashboard';
 
 export const metadata: Metadata = {
-  description: 'إدارة طلبات الأثاث المخصص وعروض السعر والتحويلات والإنتاج.',
+  description: 'إدارة طلبات الأثاث المخصص وعروض السعر والدفع والإنتاج.',
   title: 'لوحة المدير | بيتي بذوقي',
 };
 

@@ -53,10 +53,10 @@ The approved planning amendments below refine release phases without removing ca
 
 The following Product Owner decisions for `DW-001` through `DW-014` are authoritative and supersede conflicting older statements below:
 
-- An Order is created when the Customer accepts the current quotation; production still requires manual Payment Verification.
+- An Order is created when the Customer accepts the current quotation; production still requires Payment Verification from a verified signed provider webhook. Historical manual-transfer records remain immutable but are no longer active.
 - Submitted content locks; sent quotation revisions are numbered and immutable; only the current revision may be accepted; changes and declines are recorded.
-- Default currency is configurable SAR; prices use a detailed breakdown and configurable taxes; Version 1 requires full bank transfer; deposits are future scope.
-- Payment proof accepts JPG, PNG, and PDF; every submission remains in history; verification is manual; nothing is deleted automatically.
+- Default currency is configurable SAR; prices use a detailed breakdown and configurable taxes. The active implementation requires full hosted online payment after the real provider is approved and connected. Deposits remain future scope.
+- Historical Payment proofs and manual decisions remain immutable and private; the active Customer and Manager experience cannot upload, approve, reject, or open them.
 - Cancellation and after-sales policy is Manager-defined, configurable, and based on Saudi regulations; its substantive terms remain open and must not be assumed.
 - Production is Not Started → Materials Preparation → In Production → Quality Inspection → Ready; failed inspection returns to In Production.
 - Version 1 production is tracked at the Order level. Order Items remain first-class immutable domain objects but have no independent production lifecycle; future item-level tracking must be additive and preserve historical data.
@@ -80,9 +80,31 @@ The Product Owner confirmed the following behavior and implementation status aft
 - Custom Design is a permanent second request-entry path. It creates a `CUSTOM_DESIGN` request and then uses the same Quotation, Order, Payment, Production, and Fulfilment workflow as catalog-originated requests.
 - Archiving is organizational only. It sets `archived_at` and never cancels or deletes a record. Orders are archivable when `CANCELLED` or `COMPLETED`; Requests are archivable when `CANCELLED`, `REJECTED`, `COMPLETED`, or `QUOTED`.
 - The Customer profile stores full name, phone, city, and optional address. Each Delivery Order stores phone, city, district, address, optional map URL, and delivery notes. Pickup stores phone and optional pickup notes.
-- The active file implementation uses Supabase Storage for Product images, Custom Design files, Payment proofs, and delivery handoff proofs. The S3 adapter is not used by these flows; malware scanning and GuardDuty are not implemented and remain launch-hardening work.
+- The active file implementation uses Supabase Storage for Product images, Custom Design files, and delivery handoff proofs. Historical Payment proofs remain in private Supabase Storage but no active route accepts or exposes them. The S3 adapter is not used by these flows; malware scanning and GuardDuty are not implemented and remain launch-hardening work.
 - Clerk is the active identity provider. Sensitive Manager operations require the internal `manager_mfa` assurance label. The current resolver assigns that label to Manager sessions without a separate MFA upgrade trigger; production security hardening remains launch work.
 - The application is deployed on Vercel at `https://project-atelier-v1.vercel.app`, with stabilization and issue correction in progress.
+
+### Online Card Payment Transition — 2026-07-24
+
+The Product Owner approved provider-neutral secure hosted online payment as the only active payment experience. This decision supersedes every older section in this file that describes bank-transfer upload or manual Manager Payment approval as active Version 1 behavior:
+
+- The Manager uses Al Rajhi Bank and will request an e-commerce merchant account supporting mada, Visa, Mastercard, and Apple Pay.
+- The provider selection is not finalized. The official provider name, API documentation, sandbox account, API credentials, merchant identifiers, and webhook signing secret are required before integration can be completed.
+- Bank-transfer proof upload, transfer-reference entry, private-proof review, and manual Manager Payment approval are removed from the active Customer and Manager experience. Existing database rows, Storage objects, applied migrations, and audit history remain preserved.
+- Until the provider is connected and verified, online payment must remain unavailable or be presented as `قريباً`.
+- After quotation acceptance and fulfilment-information confirmation, the Customer may choose online payment and click Pay now.
+- Project Atelier must create a provider-neutral checkout session using the authoritative Order amount and currency read from PostgreSQL. Browser-provided amounts must never be trusted.
+- Card entry, OTP, and 3D Secure verification occur only on the provider's hosted payment page.
+- Project Atelier must never receive or store card numbers, CVV values, OTP codes, or full card details.
+- Provider secret keys and webhook secrets remain server-side in Vercel environment variables.
+- A browser redirect, success URL, or Customer browser response can never verify payment.
+- Only a valid signed server-to-server webhook may verify online payment.
+- Before verification, Project Atelier must validate the webhook signature, amount, currency, Order reference, provider transaction, replay/idempotency status, and relationship to the expected payment attempt.
+- Failed, cancelled, or expired payment attempts leave the Order awaiting payment and permit another attempt.
+- Successful verified payment becomes visible to the Customer and Manager and makes production available.
+- The future payment domain must support provider-neutral checkout sessions, payment attempts, signed webhook events, gateway transactions, payment-status history, and a Manager view of provider, payment method, amount, date, and transaction ID.
+- Existing Quotation, Fulfilment, Order, RLS, audit, migration, and production rules remain unchanged.
+- Production remains blocked until payment is verified by signed webhook processing. Browser redirects and Manager actions cannot verify online payment.
 
 ---
 

@@ -16,10 +16,10 @@
 ## Current implemented decisions
 
 - Arabic-first RTL furniture workflow with one business and one Manager role.
-- No direct checkout. Both catalog and custom-design requests use quotation → acceptance/refusal → Order → fulfilment details → bank transfer → manual payment verification → production → delivery/pickup → completion.
-- Production cannot start before verified payment.
+- No direct checkout. Both catalog and custom-design requests use quotation → acceptance/refusal → Order → fulfilment details → hosted online payment → production → delivery/pickup → completion.
+- Production cannot start before a verified signed provider webhook records successful payment.
 - Supabase/PostgreSQL is the system of record.
-- Active uploads use Supabase Storage. Product images are public; custom-design files, payment proofs, and delivery handoff proofs are private.
+- Active uploads use Supabase Storage. Product images are public; custom-design files and delivery handoff proofs are private. Historical payment proofs remain private but have no active upload or review route.
 - Clerk is the active identity provider. Sensitive Manager operations require the current internal `manager_mfa` assurance.
 - Archiving sets `archived_at`; it does not cancel or delete records.
 
@@ -33,7 +33,29 @@
 
 Baseline reported after Bug 1 restoration: 12 migrations and 65 PostgreSQL tests passing, with typecheck, lint, and production build passing.
 
-## Fix batch — Bugs 4, 5, and 6
+## Online-payment transition — 2026-07-24
+
+- Active bank-transfer UI and HTTP mutations were removed; historical rows, Storage objects, migrations, and audit history were preserved.
+- Added provider-neutral Payment Attempts, Checkout Sessions, immutable Gateway Transactions, and durable signed provider-event processing.
+- Added `POST /api/v1/orders/:orderId/checkout-sessions`, `GET /api/v1/orders/:orderId/payment-status`, and `POST /api/v1/webhooks/payments`.
+- The provider runtime is intentionally unavailable. No fake provider can create a checkout or verify a Payment.
+- A future reviewed adapter must verify the provider signature before the request receives the `provider_webhook` actor.
+- PostgreSQL rechecks amount, currency, Order ID, merchant reference, transaction ID, attempt state, and event idempotency.
+- Only a verified webhook actor can create a successful Gateway Transaction and set Payment and Order states to verified.
+- The Customer sees a disabled `ادفع الآن` action with `قريباً`; the Manager has a read-only provider-neutral Payment view and no manual approval controls.
+- Required server-only environment names are documented in `.env.example`; no credential values are committed.
+
+### Verification and live configuration
+
+- Forward migration `20260724000300_provider_neutral_online_payments.sql` was applied to the linked live Supabase project on 2026-07-24.
+- Live verification confirmed the new tables, forced RLS policies, transition guards, webhook-only verification support, notification function, production gate, and preservation of historical Payment submissions and verifications.
+- Vercel has `PAYMENT_PROVIDER_ENABLED=false` in Development, Preview, and Production. Provider identifiers and secrets remain unset.
+- The latest existing Vercel production deployment was verified `READY`; this workspace change was not deployed during the implementation.
+- Verification passed: 112 unit tests, 22 integration tests, 65 PostgreSQL tests, migration checks, boundaries, lint, typecheck, secret scan, focused Playwright workflow, and production build.
+
+## Historical fix batch — Bugs 4, 5, and 6
+
+This section records earlier stabilization work. Its Bug 4 proof-review behavior was subsequently superseded by the Online-payment transition above: the historical data remains, but the active proof upload, proof access, and Manager verification routes no longer exist.
 
 ### Bug 4 — Manager payment proof and transfer reference
 

@@ -81,7 +81,7 @@ describe('lean V1 commercial workflow', () => {
     await database?.dispose();
   });
 
-  it('completes request, quotation, manual payment, production and handoff atomically', async () => {
+  it('allows production only after a verified hosted-checkout webhook', async () => {
     const projects = new CustomerProjectService();
     const quotations = new QuotationService();
     const payments = new PaymentService();
@@ -136,7 +136,7 @@ describe('lean V1 commercial workflow', () => {
         lines: [{ itemTotalMinor: 450000, submittedItemId: submittedItemId! }],
         productionEstimateText: 'من 20 إلى 30 يوم عمل',
         requestId: submitted.requestId,
-        termsSnapshot: { payment: 'تحويل بنكي كامل قبل بدء التنفيذ' },
+        termsSnapshot: { payment: 'دفع إلكتروني كامل قبل بدء التنفيذ' },
       }),
     );
     expect(quote.totalMinor).toBe(475000);
@@ -155,12 +155,10 @@ describe('lean V1 commercial workflow', () => {
 
     await expect(
       withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
-        payments.submitProof(transaction, {
-          declaredReference: 'TRX-BEFORE-DETAILS',
+        payments.prepareCheckout(transaction, {
+          idempotencyKey: 'checkout-before-details',
           orderId: accepted.orderId,
-          proofDisplayFilename: 'bank-transfer.pdf',
-          proofMediaType: 'application/pdf',
-          proofObjectKey: `private/payment-proofs/${accepted.orderId}/bank-transfer.pdf`,
+          providerCode: 'alrajhi_future',
         }),
       ),
     ).rejects.toThrow('FULFILMENT_DETAILS_REQUIRED');
@@ -179,32 +177,82 @@ describe('lean V1 commercial workflow', () => {
     );
 
     const payment = await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
-      payments.submitProof(transaction, {
-        declaredReference: 'TRX-TEST-001',
+      payments.prepareCheckout(transaction, {
+        idempotencyKey: 'checkout-attempt-001',
         orderId: accepted.orderId,
-        proofChecksumSha256: 'b'.repeat(64),
-        proofDisplayFilename: 'bank-transfer.pdf',
-        proofMediaType: 'application/pdf',
-        proofObjectKey: `private/payment-proofs/${accepted.orderId}/bank-transfer.pdf`,
+        providerCode: 'alrajhi_future',
       }),
     );
-    await expect(
-      withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
-        payments.getManagerProof(transaction, payment.submissionId),
-      ),
-    ).rejects.toThrow('MANAGER_MFA_REQUIRED');
+    expect(payment.amountMinor).toBe(475000);
+    await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+      payments.activateCheckout(transaction, {
+        attemptId: payment.attemptId,
+        checkoutUrl: 'https://payments.example.invalid/checkout/session-001',
+        providerSessionId: 'session-001',
+      }),
+    );
+
     await expect(
       withActorTransaction(pool, p1ActorContexts.managerMfa, (transaction) =>
-        payments.getManagerProof(transaction, payment.submissionId),
+        payments.processGatewayEvent(transaction, {
+          amountMinor: 475000,
+          correlationId: '51000000-0000-4000-8000-000000000000',
+          currencyCode: 'SAR',
+          eventType: 'PAYMENT_SUCCEEDED',
+          merchantReference: payment.merchantReference,
+          orderId: accepted.orderId,
+          paymentMethod: 'MADA',
+          payloadDigest: '0'.repeat(64),
+          providerCode: 'alrajhi_future',
+          providerEventId: 'event-manager-forbidden',
+          providerTransactionId: 'transaction-manager-forbidden',
+          status: 'SUCCEEDED',
+        }),
       ),
-    ).resolves.toEqual({
-      displayFilename: 'bank-transfer.pdf',
-      mediaType: 'application/pdf',
-      objectKey: `private/payment-proofs/${accepted.orderId}/bank-transfer.pdf`,
-    });
-    await withActorTransaction(pool, p1ActorContexts.managerMfa, (transaction) =>
-      payments.decide(transaction, { outcome: 'VERIFIED', submissionId: payment.submissionId }),
+    ).rejects.toThrow('PAYMENT_WEBHOOK_VERIFICATION_REQUIRED');
+
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.providerWebhook, (transaction) =>
+        payments.processGatewayEvent(transaction, {
+          amountMinor: 475001,
+          correlationId: '51000000-0000-4000-8000-000000000001',
+          currencyCode: 'SAR',
+          eventType: 'PAYMENT_SUCCEEDED',
+          merchantReference: payment.merchantReference,
+          orderId: accepted.orderId,
+          paymentMethod: 'MADA',
+          payloadDigest: 'a'.repeat(64),
+          providerCode: 'alrajhi_future',
+          providerEventId: 'event-mismatch-001',
+          providerTransactionId: 'transaction-mismatch-001',
+          status: 'SUCCEEDED',
+        }),
+      ),
+    ).rejects.toThrow('PAYMENT_WEBHOOK_ORDER_MISMATCH');
+
+    const verifiedEvent = {
+      amountMinor: 475000,
+      correlationId: '51000000-0000-4000-8000-000000000002',
+      currencyCode: 'SAR',
+      eventType: 'PAYMENT_SUCCEEDED',
+      merchantReference: payment.merchantReference,
+      orderId: accepted.orderId,
+      paymentMethod: 'MADA' as const,
+      payloadDigest: 'b'.repeat(64),
+      providerCode: 'alrajhi_future',
+      providerEventId: 'event-success-001',
+      providerOccurredAt: '2026-07-24T12:00:00.000Z',
+      providerTransactionId: 'transaction-success-001',
+      status: 'SUCCEEDED' as const,
+    };
+    await withActorTransaction(pool, p1ActorContexts.providerWebhook, (transaction) =>
+      payments.processGatewayEvent(transaction, verifiedEvent),
     );
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.providerWebhook, (transaction) =>
+        payments.processGatewayEvent(transaction, verifiedEvent),
+      ),
+    ).resolves.toEqual({ orderId: accepted.orderId, outcome: 'DUPLICATE' });
 
     for (const toState of [
       'MATERIALS_PREPARATION',
@@ -244,11 +292,14 @@ describe('lean V1 commercial workflow', () => {
       }),
       fulfilmentState: 'COMPLETED',
       lifecycleState: 'COMPLETED',
-      paymentSubmissions: [
+      paymentTransactions: [
         expect.objectContaining({
-          declaredReference: 'TRX-TEST-001',
-          displayFilename: 'bank-transfer.pdf',
-          mediaType: 'application/pdf',
+          amountMinor: 475000,
+          currencyCode: 'SAR',
+          paymentMethod: 'MADA',
+          providerCode: 'alrajhi_future',
+          status: 'SUCCEEDED',
+          transactionId: 'transaction-success-001',
         }),
       ],
       paymentState: 'VERIFIED',

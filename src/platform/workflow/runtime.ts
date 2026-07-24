@@ -115,6 +115,16 @@ export async function withWorkflowActor<Result>(
   return withActorTransaction(pool(), actor, operation, { isolation: 'serializable' });
 }
 
+export function withProviderWebhookActor<Result>(
+  operation: (transaction: ActorScopedTransaction) => Promise<Result>,
+): Promise<Result> {
+  const actor: ResolvedActorContext = Object.freeze({
+    actor: Object.freeze({ kind: 'provider_webhook' }),
+    assurance: 'provider_signature',
+  });
+  return withActorTransaction(pool(), actor, operation, { isolation: 'serializable' });
+}
+
 export function workflowRole(context: ResolvedActorContext): WorkflowRole | undefined {
   if (context.actor.kind === 'customer') return 'CUSTOMER';
   if (context.actor.kind === 'manager') return 'MANAGER';

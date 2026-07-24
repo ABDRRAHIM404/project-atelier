@@ -3,6 +3,7 @@ export {
   privateUploadsReady,
   requirePrivateUploadsReady,
   resolveWorkflowActor,
+  withProviderWebhookActor,
   withWorkflowActor,
   workflowRole,
   type WorkflowRole,

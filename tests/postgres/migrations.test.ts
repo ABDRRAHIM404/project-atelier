@@ -37,7 +37,7 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
          'messaging', 'notifications')
        order by schemaname, tablename`,
     );
-    expect(tables.rows).toHaveLength(65);
+    expect(tables.rows).toHaveLength(68);
     expect(tables.rows).toContainEqual({ schema_name: 'iam', table_name: 'principals' });
     expect(tables.rows).toContainEqual({ schema_name: 'ops', table_name: 'outbox_events' });
   });
@@ -112,9 +112,14 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
         id: '20260724000200',
         transactionSafe: true,
       },
+      {
+        file: '20260724000300_provider_neutral_online_payments.sql',
+        id: '20260724000300',
+        transactionSafe: true,
+      },
     ]);
 
-    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(13);
+    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(14);
     const history = await client.query<{ name: string; version: string }>(
       `select version, name from supabase_migrations.schema_migrations order by version`,
     );
@@ -137,6 +142,10 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
       {
         name: 'handoff_proofs_bucket',
         version: '20260724000200',
+      },
+      {
+        name: 'provider_neutral_online_payments',
+        version: '20260724000300',
       },
     ]);
 
@@ -303,7 +312,7 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
          'projects', 'quotes', 'orders', 'payments', 'production', 'fulfilment',
          'messaging', 'notifications')`,
     );
-    expect(rls.rows[0]).toEqual({ forced_count: 65, relation_count: 65, secured_count: 65 });
+    expect(rls.rows[0]).toEqual({ forced_count: 68, relation_count: 68, secured_count: 68 });
   });
 
   it('registers configuration decisions without inventing values', async () => {

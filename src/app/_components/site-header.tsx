@@ -14,6 +14,10 @@ export async function SiteHeader() {
   const role = actor ? workflowRole(actor) : undefined;
   const dashboardHref = role === 'MANAGER' ? '/manager' : '/workspace';
   const dashboardLabel = role === 'MANAGER' ? 'لوحة المدير' : 'مساحتي';
+  const demoAuthenticationEnabled =
+    process.env.ALLOW_DEMO_AUTH === 'true' &&
+    process.env.APP_ENV !== 'production' &&
+    process.env.APP_ENV !== 'staging';
 
   return (
     <header className="site-header">
@@ -37,31 +41,42 @@ export async function SiteHeader() {
         </nav>
 
         <div className="site-header__actions">
-          <Show when="signed-in">
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: {
-                    height: '42px',
-                    width: '42px',
-                  },
-                },
-              }}
-            />
-          </Show>
+          {!demoAuthenticationEnabled ? (
+            <>
+              <Show when="signed-in">
+                <UserButton
+                  appearance={{
+                    elements: {
+                      avatarBox: {
+                        height: '42px',
+                        width: '42px',
+                      },
+                    },
+                  }}
+                />
+              </Show>
 
-          <Show when="signed-out">
-            <SignInButton mode="modal">
-              <button className="button button--secondary button--small site-header__sign-in" type="button">
-                <span className="site-header__label--desktop">تسجيل الدخول</span>
-                <span className="site-header__label--mobile">دخول</span>
-              </button>
-            </SignInButton>
-          </Show>
+              <Show when="signed-out">
+                <SignInButton mode="modal">
+                  <button
+                    className="button button--secondary button--small site-header__sign-in"
+                    type="button"
+                  >
+                    <span className="site-header__label--desktop">تسجيل الدخول</span>
+                    <span className="site-header__label--mobile">دخول</span>
+                  </button>
+                </SignInButton>
+              </Show>
+            </>
+          ) : null}
 
           <Link className="button button--small site-header__start" href={dashboardHref}>
-            <span className="site-header__label--desktop">{role === 'MANAGER' ? 'لوحة المدير' : 'ابدأ مشروعك'}</span>
-            <span className="site-header__label--mobile">{role === 'MANAGER' ? 'الإدارة' : 'ابدأ'}</span>
+            <span className="site-header__label--desktop">
+              {role === 'MANAGER' ? 'لوحة المدير' : 'ابدأ مشروعك'}
+            </span>
+            <span className="site-header__label--mobile">
+              {role === 'MANAGER' ? 'الإدارة' : 'ابدأ'}
+            </span>
           </Link>
         </div>
       </div>

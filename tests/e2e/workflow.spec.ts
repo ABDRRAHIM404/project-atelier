@@ -1,36 +1,32 @@
 import { expect, test, type Page } from '@playwright/test';
 
 async function switchRole(page: Page, role: 'customer' | 'manager') {
-  await page.getByRole('button', { name: role === 'customer' ? 'العميل' : 'المدير' }).click();
+  await page
+    .getByRole('button', { exact: true, name: role === 'customer' ? 'العميل' : 'المدير' })
+    .click();
   await expect(page).toHaveURL(role === 'customer' ? /\/workspace$/u : /\/manager$/u);
 }
 
-test('completes the Arabic customer-to-manager order journey', async ({ page }) => {
+test('reaches hosted payment safely and keeps it unavailable until provider wiring', async ({
+  page,
+}) => {
   await page.request.post('/api/v1/demo-auth', { data: { role: 'customer' } });
   await page.goto('/workspace?productId=11111111-1111-4111-8111-111111111111');
 
   await expect(
     page.getByRole('heading', { level: 1, name: 'حوّل فكرتك إلى قطعة مصنوعة لك' }),
   ).toBeVisible();
-  await page.getByLabel('اسم المشروع').fill('مجلس اختبار كامل');
-  await page.getByLabel('ملاحظات عامة').fill('تنفيذ هادئ لمساحة العائلة');
-  await page.getByRole('button', { name: 'إنشاء المسودة' }).click();
-  await expect(page.getByText('تم إنشاء مسودة المشروع.')).toBeVisible();
-
-  await page.getByLabel('التصميم').selectOption('11111111-1111-4111-8111-111111111111');
   await page.getByLabel('العرض (سم)').fill('320');
   await page.getByLabel('الخامة').fill('قماش');
   await page.getByLabel('اللون').fill('بيج');
-  await page.getByRole('button', { name: 'إضافة التصميم' }).click();
-  await expect(page.getByText('تمت إضافة التصميم إلى المشروع.')).toBeVisible();
-
-  await page.getByRole('button', { name: 'إرسال المشروع للمراجعة' }).click();
-  await expect(page.getByText('أُرسل المشروع إلى المدير للمراجعة.')).toBeVisible();
+  await page.getByLabel('ملاحظات التخصيص').fill('تنفيذ هادئ لمساحة العائلة');
+  await page.getByRole('button', { name: 'إرسال الطلب إلى المدير' }).click();
+  await expect(page.getByText('تم إرسال طلب التصميم إلى المدير.')).toBeVisible();
 
   await switchRole(page, 'manager');
-  await expect(page.getByRole('heading', { level: 3, name: 'مجلس اختبار كامل' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 3, name: 'طلب كنبة سكينة' })).toBeVisible();
   await page.getByRole('button', { name: 'مراجعة وتسعير' }).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'مجلس اختبار كامل' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'طلب كنبة سكينة' })).toBeVisible();
 
   await page.getByLabel('سعر القطعة (ر.س)').fill('4500');
   await page.getByLabel('تكلفة التوصيل (ر.س)').fill('250');
@@ -40,51 +36,41 @@ test('completes the Arabic customer-to-manager order journey', async ({ page }) 
 
   await switchRole(page, 'customer');
   await expect(page.getByText(/٤٬٧٥٠٫٠٠/u).first()).toBeVisible();
-  await page.getByRole('button', { name: 'اعتماد العرض' }).click();
-  await expect(page.getByText('تم اعتماد عرض السعر وإنشاء الطلب.')).toBeVisible();
-
-  await page.getByRole('button', { name: 'عرض التفاصيل' }).click();
-  await page.getByLabel('رقم الهاتف').fill('0500000000');
-  await page.getByLabel('المدينة').fill('الرياض');
-  await page.getByLabel('الحي').fill('النخيل');
-  await page.getByLabel('العنوان الكامل').fill('شارع الملك فهد، مبنى 12');
-  await page
-    .getByLabel('رابط الموقع على الخريطة (اختياري)')
-    .fill('https://maps.google.com/?q=24.7,46.7');
-  await page.getByLabel('ملاحظات التوصيل (اختياري)').fill('الاتصال قبل الوصول');
-  await page.getByRole('button', { name: 'حفظ تفاصيل الاستلام' }).click();
+  await page.getByRole('button', { name: 'قبول عرض السعر' }).click();
   await expect(
-    page.getByText('تم حفظ تفاصيل الاستلام. يمكنك الآن إرسال إثبات التحويل.'),
+    page.getByText('تم قبول السعر. أكمل بيانات الاستلام للانتقال إلى الدفع.'),
   ).toBeVisible();
 
-  await page.locator('input[name="receipt"]').setInputFiles({
-    buffer: Buffer.from('test payment proof'),
-    mimeType: 'application/pdf',
-    name: 'bank-transfer.pdf',
-  });
-  await page.getByLabel('مرجع التحويل').fill('TRX-TEST-001');
-  await page.getByRole('button', { name: 'إرسال للمراجعة' }).click();
-  await expect(page.getByText('تم إرسال إثبات التحويل للمراجعة اليدوية.')).toBeVisible();
+  const orderDialog = page.getByRole('dialog');
+  await orderDialog.getByLabel('رقم الهاتف').fill('0500000000');
+  await orderDialog.getByLabel('المدينة').fill('الرياض');
+  await orderDialog.getByLabel('الحي').fill('النخيل');
+  await orderDialog.getByLabel('العنوان الكامل').fill('شارع الملك فهد، مبنى 12');
+  await orderDialog
+    .getByLabel('رابط الموقع على الخريطة (اختياري)')
+    .fill('https://maps.google.com/?q=24.7,46.7');
+  await orderDialog.getByLabel('ملاحظات التوصيل (اختياري)').fill('الاتصال قبل الوصول');
+  await orderDialog.getByRole('button', { name: 'حفظ تفاصيل الاستلام' }).click();
+  await expect(
+    page.getByText('تم حفظ تفاصيل الاستلام. سيصبح الدفع متاحاً بعد اكتمال ربط مزود الخدمة.'),
+  ).toBeVisible();
+
+  await expect(
+    page.getByRole('heading', { level: 4, name: 'الدفع الإلكتروني الآمن' }),
+  ).toBeVisible();
+  await expect(page.getByText('mada · Visa · Mastercard · Apple Pay')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ادفع الآن' })).toBeDisabled();
+  await expect(
+    page.getByText('الدفع غير متاح حالياً حتى اكتمال الربط الرسمي مع مزود الخدمة.'),
+  ).toBeVisible();
+  await expect(page.locator('input[name="receipt"]')).toHaveCount(0);
+  await orderDialog.getByRole('button', { name: 'إغلاق' }).click();
 
   await switchRole(page, 'manager');
-  await page.getByRole('button', { name: 'إدارة الطلب' }).click();
-  await expect(page.getByRole('heading', { level: 3, name: 'مراجعة إثبات التحويل' })).toBeVisible();
-  await page.getByRole('button', { name: 'تأكيد التحويل' }).click();
-  await expect(page.getByText('تم تأكيد التحويل.')).toBeVisible();
-
-  for (const state of ['تجهيز الخامات', 'قيد التنفيذ', 'فحص الجودة', 'جاهز']) {
-    await page.getByRole('button', { name: `نقل إلى ${state}` }).click();
-    await expect(page.getByText(`تم نقل الإنتاج إلى ${state}.`)).toBeVisible();
-  }
-
-  await page.locator('input[name="proof"]').setInputFiles({
-    buffer: Buffer.from('test handoff proof'),
-    mimeType: 'image/jpeg',
-    name: 'handoff.jpg',
-  });
-  await page.getByRole('button', { name: 'تأكيد التسليم وإكمال الطلب' }).click();
-  await expect(page.getByText('تم تسجيل التسليم وإكمال الطلب.')).toBeVisible();
-
-  await switchRole(page, 'customer');
-  await expect(page.getByText('مكتمل').first()).toBeVisible();
+  await page.getByRole('tab', { name: /الطلبات/u }).click();
+  await page.getByRole('button', { name: 'عرض التفاصيل' }).click();
+  await expect(page.getByRole('heading', { level: 3, name: 'الدفع الإلكتروني' })).toBeVisible();
+  await expect(page.getByText('لم يتم تسجيل عملية دفع إلكتروني موثقة لهذا الطلب.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'تأكيد التحويل' })).toHaveCount(0);
+  await expect(page.getByText('تقدم الإنتاج')).toHaveCount(0);
 });

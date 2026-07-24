@@ -202,6 +202,20 @@
       "riskClass": "C",
       "transactionSafe": true,
       "verification": "npm run migrations:check && npm run test:postgres && npm run typecheck && npm run lint && npm run build"
+    },
+    {
+      "backwardCompatibility": "Adds provider-neutral hosted checkout while preserving immutable historical bank-transfer rows and migrations",
+      "checksumSha256": "31112fb7e193e9af0ac400af1db669671b722e565e1b534626407576d83e682c",
+      "dataEffect": "Retires unfinished manual-review status to awaiting payment; preserves all receipt and verification rows; adds no provider, credential, checkout, or transaction data",
+      "dependencies": ["20260724000200"],
+      "expectedLock": "Brief metadata and row locks on payment status, Order lifecycle, Production guard, notifications, and new payment tables",
+      "file": "20260724000300_provider_neutral_online_payments.sql",
+      "id": "20260724000300",
+      "owners": ["payments", "orders", "production", "notifications", "audit-and-operations"],
+      "recovery": "Rollback the uncommitted transaction; after commit use a reviewed forward-fix and never delete historical payment evidence",
+      "riskClass": "A",
+      "transactionSafe": true,
+      "verification": "npm run migrations:check && npm run test:postgres && npm run typecheck && npm run lint && npm run build"
     }
   ]
 }
