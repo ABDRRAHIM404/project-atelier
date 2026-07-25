@@ -75,8 +75,8 @@ Where an older section below conflicts with these amendments, the Product Owner 
 
 The Product Owner confirmed the following behavior and implementation status after the initial planning package:
 
-- A Customer or Manager may cancel a Submitted Request before an Order exists.
-- A Customer or Manager may cancel an Order unless it is already `COMPLETED` or `CANCELLED`. The financial, material, refund, and recovery consequences of cancellation after Payment Verification or Production starts remain deferred until launch preparation.
+- A Customer or Manager may cancel a Submitted Request before an Order exists. If a Quotation has already been sent, cancellation changes the parent Request and Quotation lifecycle only; the sent Quotation Revision, its items, digest, commercial history, activity, audit records, and related data remain immutable and are never deleted.
+- A Customer or Manager may cancel an Order unless it is already `COMPLETED` or `CANCELLED`, including an accepted Order that is still unpaid. Cancellation updates the Order lifecycle and cancellation metadata only; the acceptance, accepted Quotation Revision, Order Item Snapshots, terms, Payment status, Production status, audit records, and related data remain preserved. The financial, material, refund, and recovery consequences of cancellation after Payment Verification or Production starts remain deferred until launch preparation.
 - Custom Design is a permanent second request-entry path. It creates a `CUSTOM_DESIGN` request and then uses the same Quotation, Order, Payment, Production, and Fulfilment workflow as catalog-originated requests.
 - Archiving is organizational only. It sets `archived_at` and never cancels or deletes a record. Orders are archivable when `CANCELLED` or `COMPLETED`; Requests are archivable when `CANCELLED`, `REJECTED`, `COMPLETED`, or `QUOTED`.
 - The Customer profile stores full name, phone, city, and optional address. Each Delivery Order stores phone, city, district, address, optional map URL, and delivery notes. Pickup stores phone and optional pickup notes.

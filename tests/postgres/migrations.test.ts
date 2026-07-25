@@ -117,9 +117,14 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
         id: '20260724000300',
         transactionSafe: true,
       },
+      {
+        file: '20260725000100_cancellation_lifecycle_consistency.sql',
+        id: '20260725000100',
+        transactionSafe: true,
+      },
     ]);
 
-    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(14);
+    await expect(applyVerifiedMigrations(client)).resolves.toHaveLength(15);
     const history = await client.query<{ name: string; version: string }>(
       `select version, name from supabase_migrations.schema_migrations order by version`,
     );
@@ -146,6 +151,10 @@ describe('Lean V1 PostgreSQL migration foundation', () => {
       {
         name: 'provider_neutral_online_payments',
         version: '20260724000300',
+      },
+      {
+        name: 'cancellation_lifecycle_consistency',
+        version: '20260725000100',
       },
     ]);
 

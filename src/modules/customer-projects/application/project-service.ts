@@ -567,7 +567,8 @@ export class CustomerProjectService {
     const actor = customerActor(transaction);
     const title = input.title.trim();
     if (title.length < 2 || title.length > 120) throw new Error('VALIDATION_FAILED');
-    if (input.files.length < 1 || input.files.length > 8) throw new Error('CUSTOM_DESIGN_FILES_REQUIRED');
+    if (input.files.length < 1 || input.files.length > 8)
+      throw new Error('CUSTOM_DESIGN_FILES_REQUIRED');
     const requestId = randomUUID();
     const itemId = randomUUID();
     const displayReference = requestReference();
@@ -600,7 +601,14 @@ export class CustomerProjectService {
         input.customerNotes ?? '',
       ],
     );
-    await this.recordActivity(transaction, requestId, 'CUSTOM_DESIGN_SUBMITTED', undefined, 'SUBMITTED', 'تم إرسال تصميم خاص للمراجعة.');
+    await this.recordActivity(
+      transaction,
+      requestId,
+      'CUSTOM_DESIGN_SUBMITTED',
+      undefined,
+      'SUBMITTED',
+      'تم إرسال تصميم خاص للمراجعة.',
+    );
     await transaction.query(
       `insert into notifications.notifications
          (recipient_principal_id, event_type, resource_type, resource_id,
@@ -621,10 +629,13 @@ export class CustomerProjectService {
   ): Promise<void> {
     const context = transaction.actorContext;
     const actorKind = context.actor.kind;
-    if (actorKind !== 'customer' && actorKind !== 'manager') throw new Error('AUTHENTICATION_REQUIRED');
+    if (actorKind !== 'customer' && actorKind !== 'manager')
+      throw new Error('AUTHENTICATION_REQUIRED');
     const normalizedReason = reason.trim();
-    if (normalizedReason.length < 2 || normalizedReason.length > 1000) throw new Error('VALIDATION_FAILED');
-    const customerId = actorKind === 'customer' && 'customerId' in context ? context.customerId : undefined;
+    if (normalizedReason.length < 2 || normalizedReason.length > 1000)
+      throw new Error('VALIDATION_FAILED');
+    const customerId =
+      actorKind === 'customer' && 'customerId' in context ? context.customerId : undefined;
     const result = await transaction.query<QueryResultRow & { customer_id: string; state: string }>(
       `select customer_id, state from projects.submitted_requests
        where id = $1 ${customerId ? 'and customer_id = $2' : ''} for update`,
@@ -632,7 +643,8 @@ export class CustomerProjectService {
     );
     const row = result.rows[0];
     if (!row) throw new Error('REQUEST_NOT_FOUND');
-    if (['CANCELLED', 'REJECTED', 'COMPLETED'].includes(row.state)) throw new Error('REQUEST_NOT_CANCELLABLE');
+    if (['CANCELLED', 'REJECTED', 'COMPLETED'].includes(row.state))
+      throw new Error('REQUEST_NOT_CANCELLABLE');
     const linkedOrder = await transaction.query<QueryResultRow & { id: string }>(
       `select o.id
        from orders.orders o
@@ -644,16 +656,6 @@ export class CustomerProjectService {
     );
     if (linkedOrder.rows[0]) throw new Error('REQUEST_HAS_ORDER');
 
-    await transaction.query(
-      `update quotes.quotation_revisions revision
-       set state = 'DECLINED', updated_at = clock_timestamp(),
-           record_version = record_version + 1
-       from quotes.quotations quotation
-       where quotation.submitted_request_id = $1
-         and quotation.current_sent_revision_id = revision.id
-         and revision.state = 'SENT'`,
-      [requestId],
-    );
     await transaction.query(
       `update quotes.quotations
        set lifecycle = 'DECLINED', updated_at = clock_timestamp(),
@@ -669,7 +671,24 @@ export class CustomerProjectService {
        where id = $1`,
       [requestId, actorKind.toUpperCase(), normalizedReason],
     );
-    await this.recordActivity(transaction, requestId, 'REQUEST_CANCELLED', row.state, 'CANCELLED', normalizedReason);
+    await this.recordActivity(
+      transaction,
+      requestId,
+      'REQUEST_CANCELLED',
+      row.state,
+      'CANCELLED',
+      normalizedReason,
+    );
+    await transaction.query(
+      `insert into audit.events
+         (event_type, actor_kind, actor_principal_id, target_type, target_id,
+          operation, outcome, state_before, state_after, correlation_id, metadata_json)
+       values
+         ('REQUEST_CANCELLED', $1, $2, 'SubmittedRequest', $3,
+          'CANCEL_REQUEST', 'SUCCEEDED', $4, 'CANCELLED', $5,
+          jsonb_build_object('state_from', $4::text, 'state_to', 'CANCELLED'))`,
+      [actorKind, context.actor.principalId, requestId, row.state, randomUUID()],
+    );
   }
 
   async archiveRequest(transaction: ActorScopedTransaction, requestId: string): Promise<void> {
@@ -680,7 +699,14 @@ export class CustomerProjectService {
       [requestId, actor.customerId],
     );
     if (result.rowCount === 0) throw new Error('REQUEST_NOT_ARCHIVABLE');
-    await this.recordActivity(transaction, requestId, 'REQUEST_ARCHIVED', undefined, undefined, 'نُقل الطلب إلى السجل.');
+    await this.recordActivity(
+      transaction,
+      requestId,
+      'REQUEST_ARCHIVED',
+      undefined,
+      undefined,
+      'نُقل الطلب إلى السجل.',
+    );
   }
 
   async recordActivity(
@@ -692,14 +718,22 @@ export class CustomerProjectService {
     noteAr = '',
   ): Promise<void> {
     const actor = transaction.actorContext.actor;
-    const actorKind = actor.kind === 'manager' ? 'MANAGER' : actor.kind === 'customer' ? 'CUSTOMER' : 'SYSTEM';
+    const actorKind =
+      actor.kind === 'manager' ? 'MANAGER' : actor.kind === 'customer' ? 'CUSTOMER' : 'SYSTEM';
     const actorPrincipalId = 'principalId' in actor ? actor.principalId : null;
     await transaction.query(
       `insert into projects.request_activity
          (request_id, actor_principal_id, actor_kind, event_type, from_state, to_state, note_ar)
        values ($1, $2, $3, $4, $5, $6, $7)`,
-      [requestId, actorPrincipalId, actorKind, eventType, fromState ?? null, toState ?? null, noteAr],
+      [
+        requestId,
+        actorPrincipalId,
+        actorKind,
+        eventType,
+        fromState ?? null,
+        toState ?? null,
+        noteAr,
+      ],
     );
   }
 }
-

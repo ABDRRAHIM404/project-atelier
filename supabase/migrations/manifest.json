@@ -216,6 +216,26 @@
       "riskClass": "A",
       "transactionSafe": true,
       "verification": "npm run migrations:check && npm run test:postgres && npm run typecheck && npm run lint && npm run build"
+    },
+    {
+      "backwardCompatibility": "Restores lifecycle-only cancellation without changing sent quotation revisions or deleting commercial history",
+      "checksumSha256": "b9610b7858649ed8335ca4771d794d040ce4c234d35a78e0bf1ee73dd5ae22dd",
+      "dataEffect": "No business rows changed; restores the Order cancellation transition and customer-owned Request cancellation policy",
+      "dependencies": ["20260724000300"],
+      "expectedLock": "Brief function and policy metadata locks only",
+      "file": "20260725000100_cancellation_lifecycle_consistency.sql",
+      "id": "20260725000100",
+      "owners": [
+        "customer-projects",
+        "quotations-and-acceptance",
+        "orders",
+        "access-and-identity",
+        "audit-and-operations"
+      ],
+      "recovery": "Rollback the uncommitted transaction; after commit use a reviewed forward-fix and never mutate or delete sent quotation history",
+      "riskClass": "B",
+      "transactionSafe": true,
+      "verification": "npm run migrations:check && npm run test:postgres && npm run typecheck && npm run lint && npm run build"
     }
   ]
 }

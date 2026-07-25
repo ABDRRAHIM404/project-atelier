@@ -1598,7 +1598,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
                 }
                 type="button"
               >
-                إلغاء الطلب
+                {requestDetail.state === 'QUOTED' ? 'إلغاء عرض السعر والطلب' : 'إلغاء الطلب'}
               </button>
             ) : null}
             <form className="workflow-form" onSubmit={sendQuotation}>

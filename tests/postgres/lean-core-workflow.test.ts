@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CustomerProjectService } from '../../src/modules/customer-projects';
 import { FulfilmentService } from '../../src/modules/fulfilment';
 import { MessageService } from '../../src/modules/messaging';
-import { OrderQueryService } from '../../src/modules/orders';
+import { OrderCancellationService, OrderQueryService } from '../../src/modules/orders';
 import { PaymentService } from '../../src/modules/payments';
 import { ProductionService } from '../../src/modules/production';
 import { QuotationService } from '../../src/modules/quotations-and-acceptance';
@@ -80,6 +80,38 @@ describe('lean V1 commercial workflow', () => {
     await owner?.end();
     await database?.dispose();
   });
+
+  async function createSentQuotation(projectName: string, itemTotalMinor = 250000) {
+    const projects = new CustomerProjectService();
+    const quotations = new QuotationService();
+    const project = await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+      projects.createProject(transaction, { projectName }),
+    );
+    await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+      projects.addItem(transaction, {
+        productId: ids.product,
+        projectId: project.id,
+      }),
+    );
+    const submitted = await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+      projects.submitProject(transaction, project.id),
+    );
+    const submittedItem = await owner.query<{ id: string }>(
+      `select id from projects.submitted_request_items where request_id = $1`,
+      [submitted.requestId],
+    );
+    const quote = await withActorTransaction(pool, p1ActorContexts.managerMfa, (transaction) =>
+      quotations.createAndSend(transaction, {
+        deliveryMinor: 0,
+        fulfilmentMethod: 'PICKUP',
+        lines: [{ itemTotalMinor, submittedItemId: submittedItem.rows[0]!.id }],
+        productionEstimateText: 'عشرون يوم عمل',
+        requestId: submitted.requestId,
+        termsSnapshot: { payment: 'دفع إلكتروني كامل قبل بدء التنفيذ' },
+      }),
+    );
+    return Object.freeze({ projects, quotations, quote, requestId: submitted.requestId });
+  }
 
   it('allows production only after a verified hosted-checkout webhook', async () => {
     const projects = new CustomerProjectService();
@@ -372,6 +404,205 @@ describe('lean V1 commercial workflow', () => {
       outcome: 'DECLINED',
       reason: 'السعر مرتفع',
       state: 'SENT',
+    });
+  });
+
+  it('lets the manager cancel a sent quotation without mutating its immutable revision', async () => {
+    const flow = await createSentQuotation('عرض ملغي من المدير');
+    const revisionBefore = await owner.query<{
+      digest_sha256: string;
+      record_version: number;
+      state: string;
+      updated_at: Date;
+    }>(
+      `select digest_sha256, record_version, state, updated_at
+       from quotes.quotation_revisions where id = $1`,
+      [flow.quote.revisionId],
+    );
+
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.managerMfa, (transaction) =>
+        flow.projects.cancelRequest(transaction, flow.requestId, 'تعذر تنفيذ الطلب'),
+      ),
+    ).resolves.toBeUndefined();
+
+    const result = await owner.query<{
+      activity_count: string;
+      audit_count: string;
+      cancelled_by: string;
+      cancellation_reason: string;
+      item_count: string;
+      lifecycle: string;
+      linked_order_count: string;
+      request_state: string;
+      revision_digest: string;
+      revision_record_version: number;
+      revision_state: string;
+      revision_updated_at: Date;
+    }>(
+      `select request.state as request_state, request.cancelled_by,
+              request.cancellation_reason, quotation.lifecycle,
+              revision.state as revision_state,
+              revision.digest_sha256 as revision_digest,
+              revision.record_version as revision_record_version,
+              revision.updated_at as revision_updated_at,
+              (select count(*) from quotes.quotation_items item
+               where item.revision_id = revision.id) as item_count,
+              (select count(*) from orders.orders existing_order
+               where existing_order.accepted_revision_id = revision.id) as linked_order_count,
+              (select count(*) from projects.request_activity activity
+               where activity.request_id = request.id
+                 and activity.event_type = 'REQUEST_CANCELLED') as activity_count,
+              (select count(*) from audit.events event
+               where event.target_id = request.id
+                 and event.event_type = 'REQUEST_CANCELLED') as audit_count
+       from projects.submitted_requests request
+       join quotes.quotations quotation
+         on quotation.submitted_request_id = request.id
+       join quotes.quotation_revisions revision
+         on revision.id = quotation.current_sent_revision_id
+       where request.id = $1`,
+      [flow.requestId],
+    );
+
+    expect(result.rows[0]).toEqual({
+      activity_count: '1',
+      audit_count: '1',
+      cancelled_by: 'MANAGER',
+      cancellation_reason: 'تعذر تنفيذ الطلب',
+      item_count: '1',
+      lifecycle: 'DECLINED',
+      linked_order_count: '0',
+      request_state: 'CANCELLED',
+      revision_digest: revisionBefore.rows[0]!.digest_sha256,
+      revision_record_version: revisionBefore.rows[0]!.record_version,
+      revision_state: 'SENT',
+      revision_updated_at: revisionBefore.rows[0]!.updated_at,
+    });
+  });
+
+  it('keeps customer-owned Request cancellation available before an Order exists', async () => {
+    const flow = await createSentQuotation('عرض يلغيه العميل');
+
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.customerB, (transaction) =>
+        flow.projects.cancelRequest(transaction, flow.requestId, 'طلب لا يخص هذا العميل'),
+      ),
+    ).rejects.toThrow('REQUEST_NOT_FOUND');
+
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+        flow.projects.cancelRequest(transaction, flow.requestId, 'لم أعد بحاجة إلى الطلب'),
+      ),
+    ).resolves.toBeUndefined();
+
+    const result = await owner.query<{
+      cancelled_by: string;
+      lifecycle: string;
+      request_state: string;
+      revision_state: string;
+    }>(
+      `select request.state as request_state, request.cancelled_by,
+              quotation.lifecycle, revision.state as revision_state
+       from projects.submitted_requests request
+       join quotes.quotations quotation
+         on quotation.submitted_request_id = request.id
+       join quotes.quotation_revisions revision
+         on revision.id = quotation.current_sent_revision_id
+       where request.id = $1`,
+      [flow.requestId],
+    );
+    expect(result.rows[0]).toEqual({
+      cancelled_by: 'CUSTOMER',
+      lifecycle: 'DECLINED',
+      request_state: 'CANCELLED',
+      revision_state: 'SENT',
+    });
+  });
+
+  it('lets the owning customer cancel an accepted unpaid Order without deleting history', async () => {
+    const flow = await createSentQuotation('طلب مؤكد غير مدفوع', 310000);
+    const accepted = await withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+      flow.quotations.accept(transaction, flow.quote.revisionId),
+    );
+    const orders = new OrderCancellationService();
+
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.customerB, (transaction) =>
+        orders.cancel(transaction, {
+          orderId: accepted.orderId,
+          reason: 'محاولة غير مصرح بها',
+        }),
+      ),
+    ).rejects.toThrow('RESOURCE_NOT_FOUND');
+
+    await expect(
+      withActorTransaction(pool, p1ActorContexts.customerA, (transaction) =>
+        orders.cancel(transaction, {
+          orderId: accepted.orderId,
+          reason: 'تغيرت احتياجاتي قبل الدفع',
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    const result = await owner.query<{
+      acceptance_count: string;
+      audit_count: string;
+      cancelled_by: string;
+      cancellation_reason: string;
+      lifecycle_state: string;
+      order_item_count: string;
+      payment_state: string;
+      production_state: string;
+      quotation_lifecycle: string;
+      request_state: string;
+      revision_state: string;
+      terms_count: string;
+    }>(
+      `select existing_order.lifecycle_state, existing_order.cancelled_by,
+              existing_order.cancellation_reason,
+              request.state as request_state,
+              quotation.lifecycle as quotation_lifecycle,
+              revision.state as revision_state,
+              payment.current_state as payment_state,
+              production.current_state as production_state,
+              (select count(*) from quotes.customer_acceptances acceptance
+               where acceptance.id = existing_order.acceptance_id) as acceptance_count,
+              (select count(*) from orders.order_item_snapshots item
+               where item.order_id = existing_order.id) as order_item_count,
+              (select count(*) from orders.order_terms_snapshots terms
+               where terms.order_id = existing_order.id) as terms_count,
+              (select count(*) from audit.events event
+               where event.target_id = existing_order.id
+                 and event.event_type = 'ORDER_CANCELLED') as audit_count
+       from orders.orders existing_order
+       join quotes.quotation_revisions revision
+         on revision.id = existing_order.accepted_revision_id
+       join quotes.quotations quotation
+         on quotation.id = revision.quotation_id
+       join projects.submitted_requests request
+         on request.id = quotation.submitted_request_id
+       join payments.order_payment_status payment
+         on payment.order_id = existing_order.id
+       join production.order_production production
+         on production.order_id = existing_order.id
+       where existing_order.id = $1`,
+      [accepted.orderId],
+    );
+
+    expect(result.rows[0]).toEqual({
+      acceptance_count: '1',
+      audit_count: '1',
+      cancelled_by: 'CUSTOMER',
+      cancellation_reason: 'تغيرت احتياجاتي قبل الدفع',
+      lifecycle_state: 'CANCELLED',
+      order_item_count: '1',
+      payment_state: 'AWAITING_PAYMENT',
+      production_state: 'NOT_STARTED',
+      quotation_lifecycle: 'ACCEPTED',
+      request_state: 'QUOTED',
+      revision_state: 'SENT',
+      terms_count: '1',
     });
   });
 

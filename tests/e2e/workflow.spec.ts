@@ -73,4 +73,14 @@ test('reaches hosted payment safely and keeps it unavailable until provider wiri
   await expect(page.getByText('لم يتم تسجيل عملية دفع إلكتروني موثقة لهذا الطلب.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'تأكيد التحويل' })).toHaveCount(0);
   await expect(page.getByText('تقدم الإنتاج')).toHaveCount(0);
+
+  await switchRole(page, 'customer');
+  await page.getByRole('tab', { name: /طلباتي/u }).click();
+  await page.getByRole('button', { name: 'طلب إلغاء' }).click();
+  const cancellationDialog = page.getByRole('dialog', { name: 'إلغاء الطلب' });
+  await cancellationDialog.getByLabel('غيّرت رأيي').check();
+  await cancellationDialog.getByRole('button', { name: 'تأكيد الإلغاء' }).click();
+  await expect(page.getByText('تم إلغاء الطلب وتسجيل السبب.')).toBeVisible();
+  await page.getByRole('button', { name: 'الملغاة' }).click();
+  await expect(page.getByText('غيّرت رأيي')).toBeVisible();
 });
