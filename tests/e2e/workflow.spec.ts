@@ -194,6 +194,45 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   await expect(gallery.getByRole('img', { name: 'الواجهة الأمامية.png' })).toBeVisible();
   await expect(gallery.getByLabel('صور مصغرة لملفات التصميم').getByRole('button')).toHaveCount(2);
 
+  const desktopViewport = page.viewportSize();
+  const desktopGalleryBox = await gallery.boundingBox();
+  expect(desktopGalleryBox).not.toBeNull();
+  expect(desktopGalleryBox?.x).toBe(0);
+  expect(desktopGalleryBox?.y).toBe(0);
+  expect(desktopGalleryBox?.width).toBe(desktopViewport?.width);
+  expect(desktopGalleryBox?.height).toBe(desktopViewport?.height);
+
+  const zoomLevel = gallery.locator('output');
+  const image = gallery.getByRole('img', { name: 'الواجهة الأمامية.png' });
+  const media = gallery.locator('.custom-design-gallery__media');
+  await expect(zoomLevel).toHaveText('100٪');
+  await gallery.getByRole('button', { name: 'تكبير الصورة' }).click();
+  await expect(zoomLevel).toHaveText('150٪');
+  await expect(image).toHaveCSS('transform', /matrix\(1\.5,/u);
+  await gallery.getByRole('button', { name: 'تصغير الصورة' }).click();
+  await expect(zoomLevel).toHaveText('100٪');
+
+  const mediaBox = await media.boundingBox();
+  expect(mediaBox).not.toBeNull();
+  if (!mediaBox) throw new Error('The custom-design image viewport was not measurable.');
+  await page.mouse.move(mediaBox.x + mediaBox.width / 2, mediaBox.y + mediaBox.height / 2);
+  await page.mouse.wheel(0, -300);
+  await expect
+    .poll(async () => Number((await zoomLevel.textContent())?.replaceAll(/\D/gu, '') ?? 0))
+    .toBeGreaterThan(100);
+
+  await gallery.getByRole('button', { name: 'إعادة ضبط الصورة' }).click();
+  await gallery.getByRole('button', { name: 'تكبير الصورة' }).click();
+  await gallery.getByRole('button', { name: 'تكبير الصورة' }).click();
+  const transformBeforeDrag = await image.getAttribute('style');
+  await page.mouse.move(mediaBox.x + mediaBox.width / 2, mediaBox.y + mediaBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(mediaBox.x + mediaBox.width / 2, mediaBox.y + mediaBox.height / 2 + 70);
+  await page.mouse.up();
+  await expect.poll(() => image.getAttribute('style')).not.toBe(transformBeforeDrag);
+  await gallery.getByRole('button', { name: 'إعادة ضبط الصورة' }).click();
+  await expect(zoomLevel).toHaveText('100٪');
+
   await gallery.getByRole('button', { name: 'الملف التالي' }).click();
   const activeGallery = page.getByRole('dialog');
   await expect(activeGallery.getByRole('heading', { name: 'التقسيم الداخلي.png' })).toBeVisible();
@@ -219,6 +258,12 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   await firstFile.click();
   const mobileGallery = page.getByRole('dialog');
   await expect(mobileGallery).toBeVisible();
+  const mobileGalleryBox = await mobileGallery.boundingBox();
+  expect(mobileGalleryBox).not.toBeNull();
+  expect(mobileGalleryBox?.x).toBe(0);
+  expect(mobileGalleryBox?.y).toBe(0);
+  expect(mobileGalleryBox?.width).toBe(360);
+  expect(mobileGalleryBox?.height).toBe(800);
   await expect
     .poll(() =>
       page.evaluate(
@@ -226,6 +271,73 @@ test('keeps the Manager custom-design gallery inside the authorized request view
       ),
     )
     .toBe(true);
+
+  const mobileMedia = mobileGallery.locator('.custom-design-gallery__media');
+  const mobileZoomLevel = mobileGallery.locator('output');
+  await mobileMedia.evaluate((element) => {
+    const dispatch = (
+      type: string,
+      pointerId: number,
+      clientX: number,
+      clientY: number,
+      buttons: number,
+    ) => {
+      element.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          buttons,
+          cancelable: true,
+          clientX,
+          clientY,
+          isPrimary: pointerId === 1,
+          pointerId,
+          pointerType: 'touch',
+        }),
+      );
+    };
+
+    dispatch('pointerdown', 1, 120, 400, 1);
+    dispatch('pointerdown', 2, 240, 400, 1);
+    dispatch('pointermove', 2, 300, 400, 1);
+    dispatch('pointerup', 2, 300, 400, 0);
+    dispatch('pointerup', 1, 120, 400, 0);
+  });
+  await expect
+    .poll(async () => Number((await mobileZoomLevel.textContent())?.replaceAll(/\D/gu, '') ?? 0))
+    .toBeGreaterThan(100);
+
+  const mobileImage = mobileGallery.getByRole('img', { name: 'الواجهة الأمامية.png' });
+  const mobileTransformBeforeDrag = await mobileImage.getAttribute('style');
+  await mobileMedia.evaluate((element) => {
+    const dispatch = (
+      type: string,
+      pointerId: number,
+      clientX: number,
+      clientY: number,
+      buttons: number,
+    ) => {
+      element.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          buttons,
+          cancelable: true,
+          clientX,
+          clientY,
+          isPrimary: true,
+          pointerId,
+          pointerType: 'touch',
+        }),
+      );
+    };
+
+    dispatch('pointerdown', 3, 180, 400, 1);
+    dispatch('pointermove', 3, 180, 340, 1);
+    dispatch('pointerup', 3, 180, 340, 0);
+  });
+  await expect.poll(() => mobileImage.getAttribute('style')).not.toBe(mobileTransformBeforeDrag);
+  await mobileGallery.getByRole('button', { name: 'إعادة ضبط الصورة' }).click();
+  await expect(mobileZoomLevel).toHaveText('100٪');
+
   await mobileGallery.getByRole('button', { name: 'إغلاق معرض ملفات التصميم' }).click();
   await expect(mobileGallery).toHaveCount(0);
   await expect(firstFile).toBeFocused();
