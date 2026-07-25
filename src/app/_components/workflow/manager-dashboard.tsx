@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { apiRequest, formatDate, formatMoney, stateLabel } from './client-api';
 import { ConversationChat } from './conversation-chat';
+import { CustomDesignGallery, type CustomDesignGalleryFile } from './custom-design-gallery';
 import { DemoRoleSwitch } from './demo-role-switch';
 
 type RequestSummary = Readonly<{
@@ -184,6 +185,22 @@ function configurationText(configuration: Record<string, unknown>): string {
   return parts.join(' · ') || 'بدون تعديلات؛ يُنفذ التصميم كما هو.';
 }
 
+function customDesignGalleryFile(
+  file: Record<string, unknown>,
+  index: number,
+): CustomDesignGalleryFile | undefined {
+  const signedUrl = typeof file.signedUrl === 'string' ? file.signedUrl : '';
+  if (!signedUrl) return undefined;
+  return Object.freeze({
+    displayName:
+      typeof file.displayName === 'string' && file.displayName.trim()
+        ? file.displayName
+        : `ملف ${index + 1}`,
+    mediaType: typeof file.mediaType === 'string' ? file.mediaType : 'application/octet-stream',
+    signedUrl,
+  });
+}
+
 export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const [requests, setRequests] = useState<readonly RequestSummary[]>([]);
   const [orders, setOrders] = useState<readonly Order[]>([]);
@@ -217,7 +234,9 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     kind: 'ORDER' | 'REQUEST';
     title: string;
   }>();
+  const [customDesignGalleryIndex, setCustomDesignGalleryIndex] = useState<number>();
   const requestDetailRef = useRef<HTMLElement>(null);
+  const customDesignGalleryTriggerRef = useRef<HTMLButtonElement | null>(null);
   const handoffProofInputRef = useRef<HTMLInputElement>(null);
   const initialTabChosen = useRef(false);
 
@@ -316,7 +335,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
 
   function changeActiveTab(tab: ManagerTab) {
     setActiveTab(tab);
-    if (tab !== 'requests') setRequestDetail(undefined);
+    if (tab !== 'requests') {
+      setRequestDetail(undefined);
+      setCustomDesignGalleryIndex(undefined);
+    }
     if (tab !== 'orders') {
       setOrderDetail(undefined);
       clearHandoffProof();
@@ -326,6 +348,7 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   function changeRequestView(view: 'ACTION' | 'WAITING' | 'CANCELLED' | 'HISTORY') {
     setRequestView(view);
     setRequestDetail(undefined);
+    setCustomDesignGalleryIndex(undefined);
   }
 
   function changeOrderView(view: 'ACTIVE' | 'CANCELLED' | 'HISTORY') {
@@ -395,6 +418,11 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
     }, 50);
     return () => window.clearTimeout(timer);
   }, [requestDetail]);
+
+  const closeCustomDesignGallery = useCallback(() => {
+    setCustomDesignGalleryIndex(undefined);
+    window.setTimeout(() => customDesignGalleryTriggerRef.current?.focus(), 0);
+  }, []);
 
   async function perform(action: () => Promise<void>, success: string) {
     setBusy(true);
@@ -837,6 +865,10 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
   const latestPaymentTransaction = orderDetail?.paymentTransactions.at(-1);
   const orderDetailIsActive =
     orderDetail && !['CANCELLED', 'COMPLETED'].includes(orderDetail.lifecycleState);
+  const customDesignGalleryFiles =
+    requestDetail?.customDesignFiles
+      .map(customDesignGalleryFile)
+      .filter((file): file is CustomDesignGalleryFile => Boolean(file)) ?? [];
   const nextState =
     orderDetailIsActive &&
     (orderDetail.paymentState === 'VERIFIED' || orderDetail.productionState !== 'NOT_STARTED')
@@ -1560,29 +1592,28 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
             </div>
             <p>{requestDetail.customerNotes || 'لا توجد ملاحظات عامة.'}</p>
             {requestDetail.requestType === 'CUSTOM_DESIGN' &&
-            requestDetail.customDesignFiles.length > 0 ? (
+            customDesignGalleryFiles.length > 0 ? (
               <div className="custom-design-file-list">
-                {requestDetail.customDesignFiles.map((file, index) => (
-                  <a
+                {customDesignGalleryFiles.map((file, index) => (
+                  <button
+                    aria-label={`فتح ${file.displayName} في معرض ملفات التصميم`}
                     className="custom-design-file"
-                    href={typeof file.signedUrl === 'string' ? file.signedUrl : undefined}
-                    key={`${String(file.objectKey)}-${index}`}
-                    rel="noreferrer"
-                    target="_blank"
+                    key={`${file.signedUrl}-${index}`}
+                    onClick={(event) => {
+                      customDesignGalleryTriggerRef.current = event.currentTarget;
+                      setCustomDesignGalleryIndex(index);
+                    }}
+                    type="button"
                   >
-                    {typeof file.signedUrl === 'string' &&
-                    String(file.mediaType ?? '').startsWith('image/') ? (
+                    {file.mediaType.startsWith('image/') ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        alt={String(file.displayName ?? `ملف ${index + 1}`)}
-                        src={file.signedUrl}
-                      />
+                      <img alt={file.displayName} src={file.signedUrl} />
                     ) : (
                       <span className="custom-design-file__icon">PDF</span>
                     )}
-                    <strong>{String(file.displayName ?? `ملف ${index + 1}`)}</strong>
-                    <small>فتح الملف</small>
-                  </a>
+                    <strong>{file.displayName}</strong>
+                    <small>عرض داخل الصفحة</small>
+                  </button>
                 ))}
               </div>
             ) : null}
@@ -2051,6 +2082,13 @@ export function ManagerDashboard({ demoEnabled }: ManagerDashboardProps) {
           </div>
         </section>
       </div>
+      {customDesignGalleryIndex !== undefined && customDesignGalleryFiles.length > 0 ? (
+        <CustomDesignGallery
+          files={customDesignGalleryFiles}
+          initialIndex={customDesignGalleryIndex}
+          onClose={closeCustomDesignGallery}
+        />
+      ) : null}
       {cancelTarget ? (
         <div
           className="modal-backdrop"

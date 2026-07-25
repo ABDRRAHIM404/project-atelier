@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 async function switchRole(page: Page, role: 'customer' | 'manager') {
@@ -83,4 +84,150 @@ test('reaches hosted payment safely and keeps it unavailable until provider wiri
   await expect(page.getByText('تم إلغاء الطلب وتسجيل السبب.')).toBeVisible();
   await page.getByRole('button', { name: 'الملغاة' }).click();
   await expect(page.getByText('غيّرت رأيي')).toBeVisible();
+});
+
+test('keeps the Manager custom-design gallery inside the authorized request view', async ({
+  page,
+}) => {
+  const requestId = '91000000-0000-4000-8000-000000000001';
+  const customerId = '92000000-0000-4000-8000-000000000001';
+  const requestedAt = '2026-07-25T12:00:00.000Z';
+  const requestSummary = {
+    customerCity: 'الرياض',
+    customerId,
+    customerLabel: 'عميلة المعرض',
+    customerPhone: '0500000000',
+    displayReference: 'REQ-2026-GALLERY',
+    id: requestId,
+    itemCount: 1,
+    projectName: 'خزانة غرفة نوم',
+    requestType: 'CUSTOM_DESIGN',
+    state: 'SUBMITTED',
+    submittedAt: requestedAt,
+  };
+  const imageBody = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/wn4GBgYGJAQoAHgQCAQO5nOEAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const browserErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => browserErrors.push(error.message));
+
+  await page.route('**/private-designs/*.png', async (route) => {
+    await route.fulfill({ body: imageBody, contentType: 'image/png', status: 200 });
+  });
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    let body: unknown;
+
+    if (path === '/api/v1/manager/requests') body = { requests: [requestSummary] };
+    else if (path === `/api/v1/manager/requests/${requestId}`) {
+      body = {
+        ...requestSummary,
+        customerNotes: 'يرجى مطابقة تفاصيل الصور.',
+        customDesignDetails: { furnitureType: 'خزانة', quantity: '1' },
+        customDesignFiles: [
+          {
+            displayName: 'الواجهة الأمامية.png',
+            mediaType: 'image/png',
+            objectKey: `customers/${customerId}/front.png`,
+            signedUrl: '/private-designs/front.png',
+            size: 2048,
+          },
+          {
+            displayName: 'التقسيم الداخلي.png',
+            mediaType: 'image/png',
+            objectKey: `customers/${customerId}/inside.png`,
+            signedUrl: '/private-designs/inside.png',
+            size: 2048,
+          },
+        ],
+        items: [
+          {
+            configuration: { schemaVersion: 1 },
+            customerNotes: '',
+            id: '93000000-0000-4000-8000-000000000001',
+            productName: 'خزانة غرفة نوم',
+            sequence: 1,
+          },
+        ],
+      };
+    } else if (path === '/api/v1/orders') body = { orders: [] };
+    else if (path === '/api/v1/notifications') body = { notifications: [] };
+    else if (path === '/api/v1/manager/catalog/products') body = { products: [] };
+    else if (path === '/api/v1/messages') {
+      body =
+        url.searchParams.get('view') === 'conversations' ? { conversations: [] } : { messages: [] };
+    } else {
+      await route.continue();
+      return;
+    }
+
+    await route.fulfill({
+      body: JSON.stringify(body),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await page.request.post('/api/v1/demo-auth', { data: { role: 'manager' } });
+  await page.goto('/manager');
+  await page.getByRole('button', { name: 'مراجعة وتسعير' }).click();
+
+  const firstFile = page.getByRole('button', {
+    name: 'فتح الواجهة الأمامية.png في معرض ملفات التصميم',
+  });
+  await expect(firstFile).toBeVisible();
+  await expect(page.locator('.custom-design-file-list a')).toHaveCount(0);
+  const pageUrl = page.url();
+
+  await firstFile.click();
+  const gallery = page.getByRole('dialog', { name: 'الواجهة الأمامية.png' });
+  await expect(gallery).toBeVisible();
+  await expect(page).toHaveURL(pageUrl);
+  await expect(page.context().pages()).toHaveLength(1);
+  await expect(gallery.getByText('الملف 1 من 2')).toBeVisible();
+  await expect(gallery.getByRole('img', { name: 'الواجهة الأمامية.png' })).toBeVisible();
+  await expect(gallery.getByLabel('صور مصغرة لملفات التصميم').getByRole('button')).toHaveCount(2);
+
+  await gallery.getByRole('button', { name: 'الملف التالي' }).click();
+  const activeGallery = page.getByRole('dialog');
+  await expect(activeGallery.getByRole('heading', { name: 'التقسيم الداخلي.png' })).toBeVisible();
+  await expect(activeGallery.getByText('الملف 2 من 2')).toBeVisible();
+
+  await page.keyboard.press('ArrowRight');
+  await expect(activeGallery.getByRole('heading', { name: 'الواجهة الأمامية.png' })).toBeVisible();
+  await activeGallery.getByRole('button', { name: 'عرض التقسيم الداخلي.png' }).click();
+  await expect(activeGallery.getByRole('heading', { name: 'التقسيم الداخلي.png' })).toBeVisible();
+
+  const accessibilityResults = await new AxeBuilder({ page })
+    .include('.custom-design-gallery')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(accessibilityResults.violations).toEqual([]);
+
+  await page.keyboard.press('Escape');
+  await expect(activeGallery).toHaveCount(0);
+  await expect(firstFile).toBeFocused();
+  await expect(page).toHaveURL(pageUrl);
+
+  await page.setViewportSize({ height: 800, width: 360 });
+  await firstFile.click();
+  const mobileGallery = page.getByRole('dialog');
+  await expect(mobileGallery).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    )
+    .toBe(true);
+  await mobileGallery.getByRole('button', { name: 'إغلاق معرض ملفات التصميم' }).click();
+  await expect(mobileGallery).toHaveCount(0);
+  await expect(firstFile).toBeFocused();
+  expect(browserErrors).toEqual([]);
 });
