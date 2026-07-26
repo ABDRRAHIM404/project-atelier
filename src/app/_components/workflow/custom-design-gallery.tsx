@@ -37,9 +37,18 @@ type PointerPosition = Readonly<{
   y: number;
 }>;
 
+type PointerGesture = {
+  maximumPointers: number;
+  moved: boolean;
+  startX: number;
+  startY: number;
+};
+
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
 const ZOOM_STEP = 0.5;
+const CONTROLS_IDLE_DELAY_MS = 2_800;
+const TAP_MOVEMENT_TOLERANCE = 8;
 const RESET_TRANSFORM: ImageTransform = { scale: MIN_SCALE, x: 0, y: 0 };
 
 function focusableElements(container: HTMLElement): HTMLElement[] {
@@ -47,7 +56,12 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
     container.querySelectorAll<HTMLElement>(
       'button:not([disabled]), iframe, [href], [tabindex]:not([tabindex="-1"])',
     ),
-  ).filter((element) => !element.hasAttribute('hidden'));
+  ).filter(
+    (element) =>
+      !element.hasAttribute('hidden') &&
+      !element.closest('[inert]') &&
+      !element.closest('[aria-hidden="true"]'),
+  );
 }
 
 export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesignGalleryProps) {
@@ -59,10 +73,13 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
   const mediaRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const pointersRef = useRef(new Map<number, PointerPosition>());
+  const pointerGestureRef = useRef<PointerGesture | null>(null);
+  const controlsTimerRef = useRef<number | null>(null);
   const transformRef = useRef<ImageTransform>(RESET_TRANSFORM);
   const [imageTransform, setImageTransform] = useState<ImageTransform>(RESET_TRANSFORM);
   const [fittedImageSize, setFittedImageSize] = useState<FittedImageSize | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const activeFile = files[activeIndex];
   const activeImageSource = activeFile?.signedUrl;
 
@@ -106,6 +123,45 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
     transformRef.current = RESET_TRANSFORM;
     setImageTransform(RESET_TRANSFORM);
   }, []);
+
+  const clearControlsTimer = useCallback(() => {
+    if (controlsTimerRef.current !== null) {
+      window.clearTimeout(controlsTimerRef.current);
+      controlsTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleControlsHide = useCallback(() => {
+    clearControlsTimer();
+    controlsTimerRef.current = window.setTimeout(() => {
+      controlsTimerRef.current = null;
+      if (pointersRef.current.size > 0) return;
+
+      const activeElement = document.activeElement;
+      const focusedControl =
+        activeElement instanceof HTMLElement
+          ? activeElement.closest<HTMLElement>('[data-gallery-control="true"]')
+          : null;
+      if (focusedControl && activeElement?.matches(':focus-visible')) return;
+
+      if (focusedControl) mediaRef.current?.focus({ preventScroll: true });
+      setControlsVisible(false);
+    }, CONTROLS_IDLE_DELAY_MS);
+  }, [clearControlsTimer]);
+
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    scheduleControlsHide();
+  }, [scheduleControlsHide]);
+
+  const toggleControls = useCallback(() => {
+    setControlsVisible((current) => {
+      const next = !current;
+      if (next) scheduleControlsHide();
+      else clearControlsTimer();
+      return next;
+    });
+  }, [clearControlsTimer, scheduleControlsHide]);
 
   const fitImageToViewport = useCallback(
     (resetToFittedView: boolean) => {
@@ -180,21 +236,37 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
   const move = useCallback(
     (offset: number) => {
       resetImage();
+      showControls();
       setActiveIndex((current) => (current + offset + files.length) % files.length);
     },
-    [files.length, resetImage],
+    [files.length, resetImage, showControls],
   );
 
   const selectFile = useCallback(
     (index: number) => {
       resetImage();
+      showControls();
       setActiveIndex(index);
     },
-    [resetImage],
+    [resetImage, showControls],
   );
 
   const onPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (pointersRef.current.size === 0) {
+      pointerGestureRef.current = {
+        maximumPointers: 1,
+        moved: false,
+        startX: event.clientX,
+        startY: event.clientY,
+      };
+    } else if (pointerGestureRef.current) {
+      pointerGestureRef.current.maximumPointers = Math.max(
+        pointerGestureRef.current.maximumPointers,
+        pointersRef.current.size + 1,
+      );
+      pointerGestureRef.current.moved = true;
+    }
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -206,10 +278,19 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.pointerType === 'mouse') showControls();
       const previousPointer = pointersRef.current.get(event.pointerId);
       if (!previousPointer) return;
 
       event.preventDefault();
+      const gesture = pointerGestureRef.current;
+      if (
+        gesture &&
+        Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) >
+          TAP_MOVEMENT_TOLERANCE
+      ) {
+        gesture.moved = true;
+      }
       const previousPointers = Array.from(pointersRef.current.values());
       pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
       const currentPointers = Array.from(pointersRef.current.values());
@@ -263,7 +344,7 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
       });
       setIsDragging(true);
     },
-    [commitTransform],
+    [commitTransform, showControls],
   );
 
   useEffect(() => {
@@ -272,13 +353,14 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
 
     function handleWheel(event: WheelEvent) {
       event.preventDefault();
+      showControls();
       const scaleFactor = Math.exp(-event.deltaY * 0.002);
       zoomAt(transformRef.current.scale * scaleFactor, event.clientX, event.clientY);
     }
 
     media.addEventListener('wheel', handleWheel, { passive: false });
     return () => media.removeEventListener('wheel', handleWheel);
-  }, [activeFile?.mediaType, zoomAt]);
+  }, [activeFile?.mediaType, showControls, zoomAt]);
 
   useEffect(() => {
     const media = mediaRef.current;
@@ -291,20 +373,43 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
     return () => observer.disconnect();
   }, [activeFile?.mediaType, activeImageSource, fitImageToViewport]);
 
-  const onPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    pointersRef.current.delete(event.pointerId);
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture may already have been released by the browser.
-    }
-    setIsDragging(pointersRef.current.size > 0 && transformRef.current.scale > MIN_SCALE);
-  }, []);
+  const onPointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      pointersRef.current.delete(event.pointerId);
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already have been released by the browser.
+      }
+      const hasActivePointers = pointersRef.current.size > 0;
+      setIsDragging(hasActivePointers && transformRef.current.scale > MIN_SCALE);
+      if (hasActivePointers) return;
+
+      const gesture = pointerGestureRef.current;
+      pointerGestureRef.current = null;
+      if (gesture && !gesture.moved && gesture.maximumPointers === 1) toggleControls();
+      else showControls();
+    },
+    [showControls, toggleControls],
+  );
+
+  const onPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (pointerGestureRef.current) pointerGestureRef.current.moved = true;
+      onPointerEnd(event);
+    },
+    [onPointerEnd],
+  );
+
+  useEffect(() => {
+    scheduleControlsHide();
+    return clearControlsTimer;
+  }, [activeIndex, clearControlsTimer, scheduleControlsHide]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    closeButtonRef.current?.focus();
+    mediaRef.current?.focus({ preventScroll: true });
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
@@ -352,6 +457,9 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
     imageTransform.scale !== MIN_SCALE || imageTransform.x !== 0 || imageTransform.y !== 0;
   const activeFittedImageSize =
     fittedImageSize?.source === activeFile.signedUrl ? fittedImageSize : null;
+  const galleryClassName = controlsVisible
+    ? 'custom-design-gallery'
+    : 'custom-design-gallery custom-design-gallery--controls-hidden';
 
   return (
     <div className="custom-design-gallery-backdrop" onMouseDown={onClose} role="presentation">
@@ -359,12 +467,17 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
         aria-describedby="custom-design-gallery-status"
         aria-labelledby="custom-design-gallery-title"
         aria-modal="true"
-        className="custom-design-gallery"
+        className={galleryClassName}
         onMouseDown={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
       >
-        <header className="custom-design-gallery__header">
+        <header
+          aria-hidden={!controlsVisible}
+          className="custom-design-gallery__header"
+          data-gallery-control="true"
+          inert={!controlsVisible}
+        >
           <div>
             <p className="eyebrow">ملفات العميل الخاصة</p>
             <h2 id="custom-design-gallery-title">{activeFile.displayName}</h2>
@@ -422,8 +535,12 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
           {hasMultipleFiles ? (
             <button
               aria-label="الملف السابق"
+              aria-hidden={!controlsVisible}
               className="custom-design-gallery__navigation custom-design-gallery__navigation--previous"
+              data-gallery-control="true"
+              inert={!controlsVisible}
               onClick={() => move(-1)}
+              tabIndex={controlsVisible ? 0 : -1}
               type="button"
             >
               <span aria-hidden="true">→</span>
@@ -432,16 +549,29 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
 
           <div
             aria-label={isImage ? 'منطقة عرض الصورة وسحبها' : undefined}
+            aria-pressed={isImage ? controlsVisible : undefined}
             className={
               isDragging
                 ? 'custom-design-gallery__media custom-design-gallery__media--dragging'
                 : 'custom-design-gallery__media'
             }
-            onPointerCancel={isImage ? onPointerEnd : undefined}
+            onPointerCancel={isImage ? onPointerCancel : undefined}
             onPointerDown={isImage ? onPointerDown : undefined}
             onPointerMove={isImage ? onPointerMove : undefined}
             onPointerUp={isImage ? onPointerEnd : undefined}
+            onKeyDown={
+              isImage
+                ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      toggleControls();
+                    }
+                  }
+                : undefined
+            }
             ref={mediaRef}
+            role={isImage ? 'button' : undefined}
+            tabIndex={isImage ? 0 : undefined}
           >
             {isImage ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -467,8 +597,12 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
           {hasMultipleFiles ? (
             <button
               aria-label="الملف التالي"
+              aria-hidden={!controlsVisible}
               className="custom-design-gallery__navigation custom-design-gallery__navigation--next"
+              data-gallery-control="true"
+              inert={!controlsVisible}
               onClick={() => move(1)}
+              tabIndex={controlsVisible ? 0 : -1}
               type="button"
             >
               <span aria-hidden="true">←</span>
@@ -477,7 +611,13 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
         </div>
 
         {hasMultipleFiles ? (
-          <div className="custom-design-gallery__thumbnails" aria-label="صور مصغرة لملفات التصميم">
+          <div
+            aria-hidden={!controlsVisible}
+            aria-label="صور مصغرة لملفات التصميم"
+            className="custom-design-gallery__thumbnails"
+            data-gallery-control="true"
+            inert={!controlsVisible}
+          >
             {files.map((file, index) => (
               <button
                 aria-label={`عرض ${file.displayName}`}

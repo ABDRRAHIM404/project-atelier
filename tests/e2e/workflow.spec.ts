@@ -274,8 +274,57 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   const media = gallery.locator('.custom-design-gallery__media');
   await expect(zoomLevel).toHaveText('100٪');
   await expectCompleteFittedImage(image, media, { height: 3600, width: 1200 });
+
+  const fittedBoxWithControls = await image.boundingBox();
+  await media.click({ position: { x: 40, y: 300 } });
+  await expect(gallery).toHaveClass(/custom-design-gallery--controls-hidden/u);
+  await expect(gallery.locator('.custom-design-gallery__header')).toHaveAttribute(
+    'aria-hidden',
+    'true',
+  );
+  const fittedBoxWithoutControls = await image.boundingBox();
+  expect(fittedBoxWithoutControls).toEqual(fittedBoxWithControls);
+
+  await media.evaluate((element) => {
+    element.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        buttons: 1,
+        cancelable: true,
+        clientX: 40,
+        clientY: 300,
+        isPrimary: true,
+        pointerId: 50,
+        pointerType: 'touch',
+      }),
+    );
+    element.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        buttons: 0,
+        cancelable: true,
+        clientX: 40,
+        clientY: 300,
+        isPrimary: true,
+        pointerId: 50,
+        pointerType: 'touch',
+      }),
+    );
+  });
+  await expect(gallery).not.toHaveClass(/custom-design-gallery--controls-hidden/u);
+
+  await expect(gallery).toHaveClass(/custom-design-gallery--controls-hidden/u, {
+    timeout: 4_500,
+  });
+  const chromeHiddenMediaBox = await media.boundingBox();
+  expect(chromeHiddenMediaBox).not.toBeNull();
+  if (!chromeHiddenMediaBox) throw new Error('The gallery media viewport was not measurable.');
+  await page.mouse.move(chromeHiddenMediaBox.x + 60, chromeHiddenMediaBox.y + 320);
+  await expect(gallery).not.toHaveClass(/custom-design-gallery--controls-hidden/u);
+
   await gallery.getByRole('button', { name: 'تكبير الصورة' }).click();
   await expect(zoomLevel).toHaveText('150٪');
+  await expect(gallery).not.toHaveClass(/custom-design-gallery--controls-hidden/u);
   await expect(image).toHaveCSS('transform', /matrix\(1\.5,/u);
   await gallery.getByRole('button', { name: 'تصغير الصورة' }).click();
   await expect(zoomLevel).toHaveText('100٪');
@@ -298,6 +347,7 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   await page.mouse.move(mediaBox.x + mediaBox.width / 2, mediaBox.y + mediaBox.height / 2 + 70);
   await page.mouse.up();
   await expect.poll(() => image.getAttribute('style')).not.toBe(transformBeforeDrag);
+  await expect(gallery).not.toHaveClass(/custom-design-gallery--controls-hidden/u);
   await gallery.getByRole('button', { name: 'إعادة ضبط الصورة' }).click();
   await expect(zoomLevel).toHaveText('100٪');
   await expectCompleteFittedImage(image, media, { height: 3600, width: 1200 });
@@ -400,6 +450,7 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   await expect
     .poll(async () => Number((await mobileZoomLevel.textContent())?.replaceAll(/\D/gu, '') ?? 0))
     .toBeGreaterThan(100);
+  await expect(mobileGallery).not.toHaveClass(/custom-design-gallery--controls-hidden/u);
 
   const mobileTransformBeforeDrag = await mobileImage.getAttribute('style');
   await mobileMedia.evaluate((element) => {
