@@ -3444,11 +3444,13 @@ p {
 .custom-design-gallery__media img,
 .custom-design-gallery__media iframe {
   display: block;
-  width: 100%;
-  height: 100%;
   border: 0;
 }
 .custom-design-gallery__media img {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
   pointer-events: none;
   object-fit: contain;
   transform-origin: center;
@@ -3456,6 +3458,8 @@ p {
   will-change: transform;
 }
 .custom-design-gallery__media iframe {
+  width: 100%;
+  height: 100%;
   background: #fff;
 }
 .custom-design-gallery__navigation {
@@ -3791,7 +3795,10 @@ p {
   width: 100%;
   aspect-ratio: 4 / 3;
   border-radius: 0.65rem;
-  object-fit: cover;
+  object-fit: contain;
+}
+.custom-design-file img {
+  background: #171311;
 }
 .custom-design-file__icon {
   display: grid;

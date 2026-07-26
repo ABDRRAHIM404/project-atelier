@@ -105,8 +105,12 @@ test('keeps the Manager custom-design gallery inside the authorized request view
     state: 'SUBMITTED',
     submittedAt: requestedAt,
   };
-  const imageBody = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/wn4GBgYGJAQoAHgQCAQO5nOEAAAAASUVORK5CYII=',
+  const portraitImageBody = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAwAAAAkCAMAAACKVCuOAAAAA1BMVEUPdm5/SejIAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADklEQVR42mNgGAXDDQAAAdQAAWSSnWoAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const landscapeImageBody = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAADAAAAAQCAMAAABncAyDAAAAA1BMVEXJeD9ohE7WAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVR42mNgGAWjYBTAAAADEAAB1y2EYwAAAABJRU5ErkJggg==',
     'base64',
   );
   const browserErrors: string[] = [];
@@ -116,7 +120,11 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   page.on('pageerror', (error) => browserErrors.push(error.message));
 
   await page.route('**/private-designs/*.png', async (route) => {
-    await route.fulfill({ body: imageBody, contentType: 'image/png', status: 200 });
+    await route.fulfill({
+      body: route.request().url().endsWith('/inside.png') ? landscapeImageBody : portraitImageBody,
+      contentType: 'image/png',
+      status: 200,
+    });
   });
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -183,6 +191,7 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   });
   await expect(firstFile).toBeVisible();
   await expect(page.locator('.custom-design-file-list a')).toHaveCount(0);
+  await expect(firstFile.getByRole('img')).toHaveCSS('object-fit', 'contain');
   const pageUrl = page.url();
 
   await firstFile.click();
@@ -206,6 +215,34 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   const image = gallery.getByRole('img', { name: 'الواجهة الأمامية.png' });
   const media = gallery.locator('.custom-design-gallery__media');
   await expect(zoomLevel).toHaveText('100٪');
+  await expect
+    .poll(() =>
+      image.evaluate((element) => {
+        const imageElement = element as HTMLImageElement;
+        return {
+          complete: imageElement.complete,
+          height: imageElement.naturalHeight,
+          width: imageElement.naturalWidth,
+        };
+      }),
+    )
+    .toEqual({ complete: true, height: 36, width: 12 });
+  const fittedPortraitBox = await image.boundingBox();
+  const fittedPortraitMediaBox = await media.boundingBox();
+  expect(fittedPortraitBox).not.toBeNull();
+  expect(fittedPortraitMediaBox).not.toBeNull();
+  if (!fittedPortraitBox || !fittedPortraitMediaBox) {
+    throw new Error('The fitted portrait image was not measurable.');
+  }
+  expect(fittedPortraitBox.width / fittedPortraitBox.height).toBeCloseTo(1 / 3, 2);
+  expect(fittedPortraitBox.x).toBeGreaterThanOrEqual(fittedPortraitMediaBox.x);
+  expect(fittedPortraitBox.y).toBeGreaterThanOrEqual(fittedPortraitMediaBox.y);
+  expect(fittedPortraitBox.x + fittedPortraitBox.width).toBeLessThanOrEqual(
+    fittedPortraitMediaBox.x + fittedPortraitMediaBox.width,
+  );
+  expect(fittedPortraitBox.y + fittedPortraitBox.height).toBeLessThanOrEqual(
+    fittedPortraitMediaBox.y + fittedPortraitMediaBox.height,
+  );
   await gallery.getByRole('button', { name: 'تكبير الصورة' }).click();
   await expect(zoomLevel).toHaveText('150٪');
   await expect(image).toHaveCSS('transform', /matrix\(1\.5,/u);
@@ -237,6 +274,38 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   const activeGallery = page.getByRole('dialog');
   await expect(activeGallery.getByRole('heading', { name: 'التقسيم الداخلي.png' })).toBeVisible();
   await expect(activeGallery.getByText('الملف 2 من 2')).toBeVisible();
+  await expect(activeGallery.locator('output')).toHaveText('100٪');
+  const fittedLandscape = activeGallery.getByRole('img', { name: 'التقسيم الداخلي.png' });
+  await expect
+    .poll(() =>
+      fittedLandscape.evaluate((element) => {
+        const imageElement = element as HTMLImageElement;
+        return {
+          complete: imageElement.complete,
+          height: imageElement.naturalHeight,
+          width: imageElement.naturalWidth,
+        };
+      }),
+    )
+    .toEqual({ complete: true, height: 16, width: 48 });
+  const fittedLandscapeBox = await fittedLandscape.boundingBox();
+  const fittedLandscapeMediaBox = await activeGallery
+    .locator('.custom-design-gallery__media')
+    .boundingBox();
+  expect(fittedLandscapeBox).not.toBeNull();
+  expect(fittedLandscapeMediaBox).not.toBeNull();
+  if (!fittedLandscapeBox || !fittedLandscapeMediaBox) {
+    throw new Error('The fitted landscape image was not measurable.');
+  }
+  expect(fittedLandscapeBox.width / fittedLandscapeBox.height).toBeCloseTo(3, 2);
+  expect(fittedLandscapeBox.x).toBeGreaterThanOrEqual(fittedLandscapeMediaBox.x);
+  expect(fittedLandscapeBox.y).toBeGreaterThanOrEqual(fittedLandscapeMediaBox.y);
+  expect(fittedLandscapeBox.x + fittedLandscapeBox.width).toBeLessThanOrEqual(
+    fittedLandscapeMediaBox.x + fittedLandscapeMediaBox.width,
+  );
+  expect(fittedLandscapeBox.y + fittedLandscapeBox.height).toBeLessThanOrEqual(
+    fittedLandscapeMediaBox.y + fittedLandscapeMediaBox.height,
+  );
 
   await page.keyboard.press('ArrowRight');
   await expect(activeGallery.getByRole('heading', { name: 'الواجهة الأمامية.png' })).toBeVisible();
