@@ -489,3 +489,90 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   await expect(firstFile).toBeFocused();
   expect(browserErrors).toEqual([]);
 });
+
+test('applies and persists the Project Atelier dark theme across public and workspace routes', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+
+  const documentRoot = page.locator('html');
+  await expect(documentRoot).toHaveAttribute('data-theme', 'dark');
+  const themeToggle = page.getByRole('button', { name: 'تفعيل الوضع الفاتح' });
+  await expect(themeToggle).toBeVisible();
+  await expect(themeToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.site-header')).toHaveCSS(
+    'background-color',
+    /rgba?\((?:18|17), (?:24|23), (?:21|20)/u,
+  );
+  await expect(page.locator('.product-card').first()).not.toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  );
+
+  const publicAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(publicAccessibility.violations).toEqual([]);
+
+  await themeToggle.click();
+  await expect(documentRoot).toHaveAttribute('data-theme', 'light');
+  await expect(page.getByRole('button', { name: 'تفعيل الوضع الداكن' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('project-atelier-theme')))
+    .toBe('light');
+
+  await page.reload();
+  await expect(documentRoot).toHaveAttribute('data-theme', 'light');
+  await page.getByRole('button', { name: 'تفعيل الوضع الداكن' }).click();
+  await expect(documentRoot).toHaveAttribute('data-theme', 'dark');
+
+  for (const path of ['/catalog', '/how-it-works', '/custom-design']) {
+    await page.goto(path);
+    await expect(documentRoot).toHaveAttribute('data-theme', 'dark');
+    await expect(page.getByRole('button', { name: 'تفعيل الوضع الفاتح' })).toBeVisible();
+  }
+
+  await page.request.post('/api/v1/demo-auth', { data: { role: 'customer' } });
+  await page.goto('/workspace');
+  await expect(documentRoot).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('.workspace-panel').first()).not.toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  );
+  await expect(page.locator('input').first()).not.toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  );
+  const customerAccessibility = await new AxeBuilder({ page })
+    .include('main')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(customerAccessibility.violations).toEqual([]);
+
+  await page.request.post('/api/v1/demo-auth', { data: { role: 'manager' } });
+  await page.goto('/manager');
+  await expect(documentRoot).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('.manager-tabs')).not.toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  );
+  const managerAccessibility = await new AxeBuilder({ page })
+    .include('main')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(managerAccessibility.violations).toEqual([]);
+
+  await page.setViewportSize({ height: 800, width: 360 });
+  await expect(page.getByRole('button', { name: 'تفعيل الوضع الفاتح' })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    )
+    .toBe(true);
+});

@@ -67,6 +67,7 @@ The following Product Owner decisions for `DW-001` through `DW-014` are authorit
 - Arabic is required, English optional, and French outside Version 1. Human approval is required for translations.
 - The current Version 1 targets in `QUALITY_GATES.md` are Accepted, subject to the more specific language decision above.
 - The design system follows an accessible warm-neutral, paired-type, consistent, restrained-motion, RTL-first direction reflecting premium Saudi interior brands.
+- Version 1 includes a complete light/dark theme across public, Customer, and Manager experiences. The first visit follows the device preference, an explicit header control persists the user's selection, initial rendering must not flash the wrong theme, and both themes preserve the green-and-beige Atelier identity with accessible contrast and focus states.
 - The recommended baseline-derived outcome measures are Accepted with average quotation preparation time, Customer satisfaction, on-time delivery rate, Order completion rate, and production delay rate added.
 
 Where an older section below conflicts with these amendments, the Product Owner decisions above control. Original long-term feature intent remains unless explicitly re-phased or removed from Version 1.

@@ -5,6 +5,7 @@ import { getTranslations } from 'next-intl/server';
 import { headers } from 'next/headers';
 
 import { resolveWorkflowActor, workflowRole } from '../../platform/workflow';
+import { ThemeToggle } from './theme-toggle';
 
 export async function SiteHeader() {
   const translate = await getTranslations('Storefront.navigation');
@@ -41,6 +42,8 @@ export async function SiteHeader() {
         </nav>
 
         <div className="site-header__actions">
+          <ThemeToggle />
+
           {!demoAuthenticationEnabled ? (
             <>
               <Show when="signed-in">
