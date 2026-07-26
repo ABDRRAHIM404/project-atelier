@@ -8,7 +8,7 @@ export async function SiteFooter() {
   return (
     <footer className="site-footer">
       <div className="site-footer__inner">
-        <div>
+        <div className="site-footer__brand">
           <Image
             alt="بيتي بذوقي"
             className="site-footer__logo"

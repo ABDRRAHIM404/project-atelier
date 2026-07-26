@@ -509,6 +509,15 @@ test('applies and persists the Project Atelier dark theme across public and work
     'background-color',
     'rgb(255, 255, 255)',
   );
+  const siteFooter = page.locator('.site-footer');
+  await expect(siteFooter).toHaveCSS('background-color', 'rgb(20, 29, 25)');
+  await expect(siteFooter).toHaveCSS('border-top-color', 'rgba(120, 203, 189, 0.12)');
+  await expect(siteFooter.locator('.site-footer__logo')).toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)',
+  );
+  await expect(siteFooter.getByRole('link').first()).toHaveCSS('color', 'rgb(168, 227, 216)');
+  await expect(siteFooter.locator('p').first()).toHaveCSS('color', 'rgb(221, 211, 198)');
 
   const publicAccessibility = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
@@ -521,6 +530,7 @@ test('applies and persists the Project Atelier dark theme across public and work
     'aria-pressed',
     'false',
   );
+  await expect(siteFooter).toHaveCSS('background-color', 'rgb(242, 237, 223)');
   await expect
     .poll(() => page.evaluate(() => window.localStorage.getItem('project-atelier-theme')))
     .toBe('light');
