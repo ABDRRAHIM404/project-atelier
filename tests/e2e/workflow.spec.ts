@@ -503,7 +503,7 @@ test('applies and persists the Project Atelier dark theme across public and work
   await expect(themeToggle).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.site-header')).toHaveCSS(
     'background-color',
-    /rgba?\((?:18|17), (?:24|23), (?:21|20)/u,
+    'rgba(14, 22, 18, 0.94)',
   );
   await expect(page.locator('.product-card').first()).not.toHaveCSS(
     'background-color',
@@ -553,6 +553,48 @@ test('applies and persists the Project Atelier dark theme across public and work
     .analyze();
   expect(customerAccessibility.violations).toEqual([]);
 
+  await page.route('**/api/v1/**', async (route) => {
+    const url = new URL(route.request().url());
+    let body: unknown;
+
+    if (url.pathname === '/api/v1/manager/requests') {
+      body = {
+        requests: [
+          {
+            customerCity: 'أكادير',
+            customerId: '95000000-0000-4000-8000-000000000001',
+            customerLabel: 'عميل الوضع الداكن',
+            customerPhone: '0500000000',
+            displayReference: 'REQ-2026-DARK',
+            id: '96000000-0000-4000-8000-000000000001',
+            itemCount: 1,
+            projectName: 'طلب اختبار التباين',
+            requestType: 'CUSTOM_DESIGN',
+            state: 'SUBMITTED',
+            submittedAt: '2026-07-26T20:00:00.000Z',
+          },
+        ],
+      };
+    } else if (url.pathname === '/api/v1/orders') body = { orders: [] };
+    else if (url.pathname === '/api/v1/notifications') body = { notifications: [] };
+    else if (url.pathname === '/api/v1/manager/catalog/products') body = { products: [] };
+    else if (
+      url.pathname === '/api/v1/messages' &&
+      url.searchParams.get('view') === 'conversations'
+    ) {
+      body = { conversations: [] };
+    } else {
+      await route.continue();
+      return;
+    }
+
+    await route.fulfill({
+      body: JSON.stringify(body),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
   await page.request.post('/api/v1/demo-auth', { data: { role: 'manager' } });
   await page.goto('/manager');
   await expect(documentRoot).toHaveAttribute('data-theme', 'dark');
@@ -560,8 +602,32 @@ test('applies and persists the Project Atelier dark theme across public and work
     'background-color',
     'rgb(255, 255, 255)',
   );
+  const managerCard = page.locator('.manager-inbox-list .workflow-card').first();
+  await expect(managerCard).toBeVisible();
+  await expect(managerCard).toHaveCSS('background-image', /linear-gradient/u);
+  await expect(managerCard).toHaveCSS('color', 'rgb(242, 233, 220)');
+  await expect(managerCard.getByRole('heading')).toHaveCSS('color', 'rgb(242, 233, 220)');
+  await expect(managerCard.getByRole('button', { name: 'مراجعة وتسعير' })).toHaveCSS(
+    'border-color',
+    'rgb(80, 97, 88)',
+  );
+  await expect(page.locator('.manager-inbox-search__control input')).toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)',
+  );
+  await expect(page.locator('.manager-inbox-search__control input')).toHaveCSS(
+    'color',
+    'rgb(242, 233, 220)',
+  );
+  await page.mouse.move(1, 899);
+  await expect(page.locator('.brand')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('.primary-navigation')).toHaveCSS('color', 'rgb(242, 233, 220)');
+  await expect(page.getByRole('button', { name: 'تفعيل الوضع الفاتح' })).toHaveCSS(
+    'border-color',
+    'rgb(82, 106, 94)',
+  );
+
   const managerAccessibility = await new AxeBuilder({ page })
-    .include('main')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();
   expect(managerAccessibility.violations).toEqual([]);
