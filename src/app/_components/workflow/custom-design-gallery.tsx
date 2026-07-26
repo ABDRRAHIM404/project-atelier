@@ -26,6 +26,12 @@ type ImageTransform = Readonly<{
   y: number;
 }>;
 
+type FittedImageSize = Readonly<{
+  height: number;
+  source: string;
+  width: number;
+}>;
+
 type PointerPosition = Readonly<{
   x: number;
   y: number;
@@ -55,8 +61,10 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
   const pointersRef = useRef(new Map<number, PointerPosition>());
   const transformRef = useRef<ImageTransform>(RESET_TRANSFORM);
   const [imageTransform, setImageTransform] = useState<ImageTransform>(RESET_TRANSFORM);
+  const [fittedImageSize, setFittedImageSize] = useState<FittedImageSize | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const activeFile = files[activeIndex];
+  const activeImageSource = activeFile?.signedUrl;
 
   const constrainTransform = useCallback((next: ImageTransform): ImageTransform => {
     const scale = Math.min(Math.max(next.scale, MIN_SCALE), MAX_SCALE);
@@ -98,6 +106,50 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
     transformRef.current = RESET_TRANSFORM;
     setImageTransform(RESET_TRANSFORM);
   }, []);
+
+  const fitImageToViewport = useCallback(
+    (resetToFittedView: boolean) => {
+      const media = mediaRef.current;
+      const image = imageRef.current;
+      if (
+        !media ||
+        !image ||
+        !activeImageSource ||
+        image.naturalWidth <= 0 ||
+        image.naturalHeight <= 0
+      ) {
+        return;
+      }
+
+      const mediaRect = media.getBoundingClientRect();
+      if (mediaRect.width <= 0 || mediaRect.height <= 0) return;
+
+      const fitScale = Math.min(
+        mediaRect.width / image.naturalWidth,
+        mediaRect.height / image.naturalHeight,
+      );
+      const nextSize = {
+        height: image.naturalHeight * fitScale,
+        source: activeImageSource,
+        width: image.naturalWidth * fitScale,
+      };
+
+      setFittedImageSize((current) => {
+        if (
+          current?.source === nextSize.source &&
+          Math.abs(current.width - nextSize.width) < 0.1 &&
+          Math.abs(current.height - nextSize.height) < 0.1
+        ) {
+          return current;
+        }
+        return nextSize;
+      });
+
+      if (resetToFittedView) resetImage();
+      else commitTransform(transformRef.current);
+    },
+    [activeImageSource, commitTransform, resetImage],
+  );
 
   const zoomAt = useCallback(
     (requestedScale: number, clientX?: number, clientY?: number) => {
@@ -228,6 +280,17 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
     return () => media.removeEventListener('wheel', handleWheel);
   }, [activeFile?.mediaType, zoomAt]);
 
+  useEffect(() => {
+    const media = mediaRef.current;
+    if (!media || !activeFile?.mediaType.startsWith('image/')) return;
+
+    const observer = new ResizeObserver(() => fitImageToViewport(false));
+    observer.observe(media);
+
+    if (imageRef.current?.complete) fitImageToViewport(true);
+    return () => observer.disconnect();
+  }, [activeFile?.mediaType, activeImageSource, fitImageToViewport]);
+
   const onPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     pointersRef.current.delete(event.pointerId);
     try {
@@ -287,6 +350,8 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
   const hasMultipleFiles = files.length > 1;
   const canReset =
     imageTransform.scale !== MIN_SCALE || imageTransform.x !== 0 || imageTransform.y !== 0;
+  const activeFittedImageSize =
+    fittedImageSize?.source === activeFile.signedUrl ? fittedImageSize : null;
 
   return (
     <div className="custom-design-gallery-backdrop" onMouseDown={onClose} role="presentation">
@@ -383,11 +448,15 @@ export function CustomDesignGallery({ files, initialIndex, onClose }: CustomDesi
               <img
                 alt={activeFile.displayName}
                 draggable={false}
-                onLoad={() => commitTransform(transformRef.current)}
+                key={activeFile.signedUrl}
+                onLoad={() => fitImageToViewport(true)}
                 ref={imageRef}
                 src={activeFile.signedUrl}
                 style={{
+                  height: activeFittedImageSize?.height ?? 0,
                   transform: `translate3d(${imageTransform.x}px, ${imageTransform.y}px, 0) scale(${imageTransform.scale})`,
+                  visibility: activeFittedImageSize ? 'visible' : 'hidden',
+                  width: activeFittedImageSize?.width ?? 0,
                 }}
               />
             ) : (

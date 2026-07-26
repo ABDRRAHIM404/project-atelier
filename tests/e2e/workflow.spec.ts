@@ -1,11 +1,50 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 async function switchRole(page: Page, role: 'customer' | 'manager') {
   await page
     .getByRole('button', { exact: true, name: role === 'customer' ? 'العميل' : 'المدير' })
     .click();
   await expect(page).toHaveURL(role === 'customer' ? /\/workspace$/u : /\/manager$/u);
+}
+
+async function expectCompleteFittedImage(
+  image: Locator,
+  media: Locator,
+  naturalSize: Readonly<{ height: number; width: number }>,
+) {
+  await expect(image).toBeVisible();
+  await expect(image).toHaveCSS('transform', /matrix\(1, 0, 0, 1, 0, 0\)|none/u);
+  await expect
+    .poll(() =>
+      image.evaluate((element) => {
+        const imageElement = element as HTMLImageElement;
+        return {
+          complete: imageElement.complete,
+          height: imageElement.naturalHeight,
+          width: imageElement.naturalWidth,
+        };
+      }),
+    )
+    .toEqual({ complete: true, ...naturalSize });
+
+  const imageBox = await image.boundingBox();
+  const mediaBox = await media.boundingBox();
+  expect(imageBox).not.toBeNull();
+  expect(mediaBox).not.toBeNull();
+  if (!imageBox || !mediaBox) throw new Error('The fitted image was not measurable.');
+
+  expect(imageBox.width / imageBox.height).toBeCloseTo(naturalSize.width / naturalSize.height, 2);
+  expect(imageBox.x).toBeGreaterThanOrEqual(mediaBox.x - 0.5);
+  expect(imageBox.y).toBeGreaterThanOrEqual(mediaBox.y - 0.5);
+  expect(imageBox.x + imageBox.width).toBeLessThanOrEqual(mediaBox.x + mediaBox.width + 0.5);
+  expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(mediaBox.y + mediaBox.height + 0.5);
+  expect(
+    Math.min(
+      Math.abs(imageBox.width - mediaBox.width),
+      Math.abs(imageBox.height - mediaBox.height),
+    ),
+  ).toBeLessThan(1);
 }
 
 test('reaches hosted payment safely and keeps it unavailable until provider wiring', async ({
@@ -105,14 +144,14 @@ test('keeps the Manager custom-design gallery inside the authorized request view
     state: 'SUBMITTED',
     submittedAt: requestedAt,
   };
-  const portraitImageBody = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAwAAAAkCAMAAACKVCuOAAAAA1BMVEUPdm5/SejIAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADklEQVR42mNgGAXDDQAAAdQAAWSSnWoAAAAASUVORK5CYII=',
-    'base64',
-  );
-  const landscapeImageBody = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAADAAAAAQCAMAAABncAyDAAAAA1BMVEXJeD9ohE7WAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVR42mNgGAWjYBTAAAADEAAB1y2EYwAAAABJRU5ErkJggg==',
-    'base64',
-  );
+  const imageFixtures: Readonly<
+    Record<string, Readonly<{ color: string; height: number; width: number }>>
+  > = {
+    'front.png': { color: '#0f766e', height: 3600, width: 1200 },
+    'inside.png': { color: '#c9783f', height: 1200, width: 3600 },
+    'panorama.png': { color: '#74538f', height: 800, width: 4800 },
+    'square.png': { color: '#315b7d', height: 2400, width: 2400 },
+  };
   const browserErrors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') browserErrors.push(message.text());
@@ -120,9 +159,14 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   page.on('pageerror', (error) => browserErrors.push(error.message));
 
   await page.route('**/private-designs/*.png', async (route) => {
+    const fixture = imageFixtures[new URL(route.request().url()).pathname.split('/').at(-1) ?? ''];
+    if (!fixture) {
+      await route.abort();
+      return;
+    }
     await route.fulfill({
-      body: route.request().url().endsWith('/inside.png') ? landscapeImageBody : portraitImageBody,
-      contentType: 'image/png',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="${fixture.width}" height="${fixture.height}" viewBox="0 0 ${fixture.width} ${fixture.height}"><rect width="100%" height="100%" fill="${fixture.color}"/></svg>`,
+      contentType: 'image/svg+xml',
       status: 200,
     });
   });
@@ -151,6 +195,20 @@ test('keeps the Manager custom-design gallery inside the authorized request view
             mediaType: 'image/png',
             objectKey: `customers/${customerId}/inside.png`,
             signedUrl: '/private-designs/inside.png',
+            size: 2048,
+          },
+          {
+            displayName: 'المخطط المربع.png',
+            mediaType: 'image/png',
+            objectKey: `customers/${customerId}/square.png`,
+            signedUrl: '/private-designs/square.png',
+            size: 2048,
+          },
+          {
+            displayName: 'المنظر البانورامي.png',
+            mediaType: 'image/png',
+            objectKey: `customers/${customerId}/panorama.png`,
+            signedUrl: '/private-designs/panorama.png',
             size: 2048,
           },
         ],
@@ -199,9 +257,9 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   await expect(gallery).toBeVisible();
   await expect(page).toHaveURL(pageUrl);
   await expect(page.context().pages()).toHaveLength(1);
-  await expect(gallery.getByText('الملف 1 من 2')).toBeVisible();
+  await expect(gallery.getByText('الملف 1 من 4')).toBeVisible();
   await expect(gallery.getByRole('img', { name: 'الواجهة الأمامية.png' })).toBeVisible();
-  await expect(gallery.getByLabel('صور مصغرة لملفات التصميم').getByRole('button')).toHaveCount(2);
+  await expect(gallery.getByLabel('صور مصغرة لملفات التصميم').getByRole('button')).toHaveCount(4);
 
   const desktopViewport = page.viewportSize();
   const desktopGalleryBox = await gallery.boundingBox();
@@ -215,34 +273,7 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   const image = gallery.getByRole('img', { name: 'الواجهة الأمامية.png' });
   const media = gallery.locator('.custom-design-gallery__media');
   await expect(zoomLevel).toHaveText('100٪');
-  await expect
-    .poll(() =>
-      image.evaluate((element) => {
-        const imageElement = element as HTMLImageElement;
-        return {
-          complete: imageElement.complete,
-          height: imageElement.naturalHeight,
-          width: imageElement.naturalWidth,
-        };
-      }),
-    )
-    .toEqual({ complete: true, height: 36, width: 12 });
-  const fittedPortraitBox = await image.boundingBox();
-  const fittedPortraitMediaBox = await media.boundingBox();
-  expect(fittedPortraitBox).not.toBeNull();
-  expect(fittedPortraitMediaBox).not.toBeNull();
-  if (!fittedPortraitBox || !fittedPortraitMediaBox) {
-    throw new Error('The fitted portrait image was not measurable.');
-  }
-  expect(fittedPortraitBox.width / fittedPortraitBox.height).toBeCloseTo(1 / 3, 2);
-  expect(fittedPortraitBox.x).toBeGreaterThanOrEqual(fittedPortraitMediaBox.x);
-  expect(fittedPortraitBox.y).toBeGreaterThanOrEqual(fittedPortraitMediaBox.y);
-  expect(fittedPortraitBox.x + fittedPortraitBox.width).toBeLessThanOrEqual(
-    fittedPortraitMediaBox.x + fittedPortraitMediaBox.width,
-  );
-  expect(fittedPortraitBox.y + fittedPortraitBox.height).toBeLessThanOrEqual(
-    fittedPortraitMediaBox.y + fittedPortraitMediaBox.height,
-  );
+  await expectCompleteFittedImage(image, media, { height: 3600, width: 1200 });
   await gallery.getByRole('button', { name: 'تكبير الصورة' }).click();
   await expect(zoomLevel).toHaveText('150٪');
   await expect(image).toHaveCSS('transform', /matrix\(1\.5,/u);
@@ -269,46 +300,38 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   await expect.poll(() => image.getAttribute('style')).not.toBe(transformBeforeDrag);
   await gallery.getByRole('button', { name: 'إعادة ضبط الصورة' }).click();
   await expect(zoomLevel).toHaveText('100٪');
+  await expectCompleteFittedImage(image, media, { height: 3600, width: 1200 });
 
   await gallery.getByRole('button', { name: 'الملف التالي' }).click();
   const activeGallery = page.getByRole('dialog');
   await expect(activeGallery.getByRole('heading', { name: 'التقسيم الداخلي.png' })).toBeVisible();
-  await expect(activeGallery.getByText('الملف 2 من 2')).toBeVisible();
+  await expect(activeGallery.getByText('الملف 2 من 4')).toBeVisible();
   await expect(activeGallery.locator('output')).toHaveText('100٪');
   const fittedLandscape = activeGallery.getByRole('img', { name: 'التقسيم الداخلي.png' });
-  await expect
-    .poll(() =>
-      fittedLandscape.evaluate((element) => {
-        const imageElement = element as HTMLImageElement;
-        return {
-          complete: imageElement.complete,
-          height: imageElement.naturalHeight,
-          width: imageElement.naturalWidth,
-        };
-      }),
-    )
-    .toEqual({ complete: true, height: 16, width: 48 });
-  const fittedLandscapeBox = await fittedLandscape.boundingBox();
-  const fittedLandscapeMediaBox = await activeGallery
-    .locator('.custom-design-gallery__media')
-    .boundingBox();
-  expect(fittedLandscapeBox).not.toBeNull();
-  expect(fittedLandscapeMediaBox).not.toBeNull();
-  if (!fittedLandscapeBox || !fittedLandscapeMediaBox) {
-    throw new Error('The fitted landscape image was not measurable.');
-  }
-  expect(fittedLandscapeBox.width / fittedLandscapeBox.height).toBeCloseTo(3, 2);
-  expect(fittedLandscapeBox.x).toBeGreaterThanOrEqual(fittedLandscapeMediaBox.x);
-  expect(fittedLandscapeBox.y).toBeGreaterThanOrEqual(fittedLandscapeMediaBox.y);
-  expect(fittedLandscapeBox.x + fittedLandscapeBox.width).toBeLessThanOrEqual(
-    fittedLandscapeMediaBox.x + fittedLandscapeMediaBox.width,
-  );
-  expect(fittedLandscapeBox.y + fittedLandscapeBox.height).toBeLessThanOrEqual(
-    fittedLandscapeMediaBox.y + fittedLandscapeMediaBox.height,
+  await expectCompleteFittedImage(
+    fittedLandscape,
+    activeGallery.locator('.custom-design-gallery__media'),
+    { height: 1200, width: 3600 },
   );
 
   await page.keyboard.press('ArrowRight');
   await expect(activeGallery.getByRole('heading', { name: 'الواجهة الأمامية.png' })).toBeVisible();
+  await activeGallery.getByRole('button', { name: 'عرض المخطط المربع.png' }).click();
+  await expect(activeGallery.getByText('الملف 3 من 4')).toBeVisible();
+  await expect(activeGallery.locator('output')).toHaveText('100٪');
+  await expectCompleteFittedImage(
+    activeGallery.getByRole('img', { name: 'المخطط المربع.png' }),
+    activeGallery.locator('.custom-design-gallery__media'),
+    { height: 2400, width: 2400 },
+  );
+  await activeGallery.getByRole('button', { name: 'عرض المنظر البانورامي.png' }).click();
+  await expect(activeGallery.getByText('الملف 4 من 4')).toBeVisible();
+  await expect(activeGallery.locator('output')).toHaveText('100٪');
+  await expectCompleteFittedImage(
+    activeGallery.getByRole('img', { name: 'المنظر البانورامي.png' }),
+    activeGallery.locator('.custom-design-gallery__media'),
+    { height: 800, width: 4800 },
+  );
   await activeGallery.getByRole('button', { name: 'عرض التقسيم الداخلي.png' }).click();
   await expect(activeGallery.getByRole('heading', { name: 'التقسيم الداخلي.png' })).toBeVisible();
 
@@ -343,6 +366,9 @@ test('keeps the Manager custom-design gallery inside the authorized request view
 
   const mobileMedia = mobileGallery.locator('.custom-design-gallery__media');
   const mobileZoomLevel = mobileGallery.locator('output');
+  const mobileImage = mobileGallery.getByRole('img', { name: 'الواجهة الأمامية.png' });
+  await expect(mobileZoomLevel).toHaveText('100٪');
+  await expectCompleteFittedImage(mobileImage, mobileMedia, { height: 3600, width: 1200 });
   await mobileMedia.evaluate((element) => {
     const dispatch = (
       type: string,
@@ -375,7 +401,6 @@ test('keeps the Manager custom-design gallery inside the authorized request view
     .poll(async () => Number((await mobileZoomLevel.textContent())?.replaceAll(/\D/gu, '') ?? 0))
     .toBeGreaterThan(100);
 
-  const mobileImage = mobileGallery.getByRole('img', { name: 'الواجهة الأمامية.png' });
   const mobileTransformBeforeDrag = await mobileImage.getAttribute('style');
   await mobileMedia.evaluate((element) => {
     const dispatch = (
@@ -406,6 +431,7 @@ test('keeps the Manager custom-design gallery inside the authorized request view
   await expect.poll(() => mobileImage.getAttribute('style')).not.toBe(mobileTransformBeforeDrag);
   await mobileGallery.getByRole('button', { name: 'إعادة ضبط الصورة' }).click();
   await expect(mobileZoomLevel).toHaveText('100٪');
+  await expectCompleteFittedImage(mobileImage, mobileMedia, { height: 3600, width: 1200 });
 
   await mobileGallery.getByRole('button', { name: 'إغلاق معرض ملفات التصميم' }).click();
   await expect(mobileGallery).toHaveCount(0);
